@@ -1,0 +1,126 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+  runtime             = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum GlobalRole {
+  SUPERADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CompanyStatus {
+  ONBOARDING
+  ACTIVE
+  PAUSED
+  INACTIVE
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  AGENT
+}
+
+model User {
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  name               String     @db.VarChar(120)
+  // O índice único já atende às buscas por e-mail.
+  email              String     @unique @db.VarChar(254)
+  passwordHash       String
+  globalRole         GlobalRole @default(USER)
+  status             UserStatus @default(ACTIVE)
+  mustChangePassword Boolean    @default(false)
+  createdAt          DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @db.Timestamptz(3)
+
+  sessions    Session[]
+  membership  CompanyMember?
+  auditEvents AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @db.Uuid
+  // SHA-256 do token do cookie; o token em si nunca é persistido.
+  tokenHash String   @unique @db.Char(64)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  // Sessão não tem valor sem o usuário.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Company {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  name          String        @db.VarChar(120)
+  legalName     String?       @db.VarChar(200)
+  slug          String        @unique @db.VarChar(140)
+  industry      String        @db.VarChar(80)
+  cnpj          String?       @db.VarChar(14)
+  phone         String        @db.VarChar(13)
+  email         String?       @db.VarChar(254)
+  website       String?       @db.VarChar(255)
+  address       String?       @db.VarChar(200)
+  city          String?       @db.VarChar(80)
+  state         String?       @db.Char(2)
+  businessHours String?       @db.VarChar(200)
+  status        CompanyStatus @default(ONBOARDING)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+
+  members     CompanyMember[]
+  auditEvents AuditLog[]
+
+  @@index([status])
+}
+
+model CompanyMember {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  companyId String     @db.Uuid
+  // FASE 1: um usuário pertence a no máximo uma empresa. A autorização usa sempre o par
+  // (userId, companyId); remover este @unique no futuro não exige mudar os guards.
+  userId    String     @unique @db.Uuid
+  role      MemberRole
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+
+  // Restrict: excluir empresa/usuário com vínculo deve ser uma decisão explícita, nunca cascata acidental.
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Também serve como índice para buscas por companyId (coluna líder).
+  @@unique([companyId, userId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  // Opcional: login falho com e-mail inexistente não tem ator; o e-mail vai em metadata.
+  actorUserId String?  @db.Uuid
+  action      String   @db.VarChar(64)
+  entityType  String   @db.VarChar(64)
+  entityId    String?  @db.VarChar(64)
+  companyId   String?  @db.Uuid
+  metadata    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  // SetNull: o histórico de auditoria sobrevive à remoção do ator ou da empresa.
+  actor   User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([createdAt])
+}

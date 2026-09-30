@@ -1,0 +1,32 @@
+{
+  "name": "arthur-ai",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build:packages": "pnpm --filter @arthur-ai/shared --filter @arthur-ai/database run build",
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "lint": "pnpm build:packages && pnpm -r run lint",
+    "typecheck": "pnpm build:packages && pnpm -r run typecheck",
+    "test": "pnpm build:packages && pnpm --filter @arthur-ai/api run test:e2e",
+    "dev:api": "pnpm --filter @arthur-ai/api run dev",
+    "dev:web": "pnpm --filter @arthur-ai/web run dev",
+    "db:generate": "pnpm --filter @arthur-ai/database run generate",
+    "db:migrate": "pnpm --filter @arthur-ai/database run migrate:dev",
+    "db:deploy": "pnpm --filter @arthur-ai/database run migrate:deploy",
+    "db:status": "pnpm --filter @arthur-ai/database run migrate:status",
+    "db:seed": "pnpm --filter @arthur-ai/database run build && pnpm --filter @arthur-ai/database run seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.4",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.3.8",
+    "globals": "^16.5.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0"
+  }
+}

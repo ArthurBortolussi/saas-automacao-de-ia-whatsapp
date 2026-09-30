@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 10 bloqueia scripts de instalação por padrão; liberamos só os binários nativos necessários.
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - "@swc/core"
+  - argon2
+  - esbuild
+  - prisma
+  - sharp
+  - unrs-resolver
