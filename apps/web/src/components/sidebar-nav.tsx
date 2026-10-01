@@ -52,6 +52,8 @@ export function SidebarNav({ variant }: { variant: keyof typeof NAV }) {
           <Link
             key={item.href}
             href={item.href}
+            // Sem prefetch: páginas são dinâmicas e o polling da Inbox refaria esses prefetches a cada ciclo.
+            prefetch={false}
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex shrink-0 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",

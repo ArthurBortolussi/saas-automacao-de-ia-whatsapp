@@ -3,6 +3,7 @@ import { cn } from "@arthur-ai/ui/lib/utils";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@arthur-ai/ui/components/empty";
 import { MessagesSquare } from "lucide-react";
 import type { Metadata } from "next";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { fetchPageData, fetchPageDataOrNull, requireMembership } from "@/lib/api-server";
 import { ChatPanel } from "./chat-panel";
 import { ContactPanel } from "./contact-panel";
@@ -33,6 +34,7 @@ export default async function InboxPage({ searchParams }: PageProps<"/dashboard/
 
   return (
     <div className="-mx-4 -my-6 flex h-[calc(100dvh-7.5rem)] overflow-hidden border-y bg-card md:-mx-10 md:-my-10 md:h-dvh md:border-y-0">
+      <AutoRefresh />
       <aside className={cn("w-full shrink-0 flex-col border-r md:flex md:w-80", selectedId ? "hidden" : "flex")}>
         <ConversationList conversations={list} filter={filter} selectedId={conversation?.id ?? null} />
       </aside>

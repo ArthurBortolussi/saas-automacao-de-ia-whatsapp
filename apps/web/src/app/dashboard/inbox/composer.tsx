@@ -1,6 +1,6 @@
 "use client";
 
-import { MESSAGE_MAX_LENGTH, sendMessageSchema, type ConversationMode } from "@arthur-ai/shared";
+import { MESSAGE_MAX_LENGTH, sendMessageSchema, type ConversationChannel, type ConversationMode } from "@arthur-ai/shared";
 import { Button } from "@arthur-ai/ui/components/button";
 import { Textarea } from "@arthur-ai/ui/components/textarea";
 import { SendHorizontal } from "lucide-react";
@@ -14,14 +14,19 @@ const BLOCKED_HINT: Record<ConversationMode, string> = {
   HUMAN: "",
 };
 
+const WINDOW_CLOSED_HINT =
+  "Janela de 24h do WhatsApp fechada: o cliente não escreve há mais de 24 horas. Só é possível retomar com um modelo aprovado pela Meta (fase futura).";
+
 interface ComposerProps {
   companyId: string;
   conversationId: string;
   canReply: boolean;
   mode: ConversationMode;
+  channel: ConversationChannel;
+  serviceWindowOpen: boolean;
 }
 
-export function Composer({ companyId, conversationId, canReply, mode }: ComposerProps) {
+export function Composer({ companyId, conversationId, canReply, mode, channel, serviceWindowOpen }: ComposerProps) {
   const router = useRouter();
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +65,13 @@ export function Composer({ companyId, conversationId, canReply, mode }: Composer
     }
   }
 
-  if (!canReply) {
-    return <div className="border-t bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">{BLOCKED_HINT[mode]}</div>;
+  const whatsapp = channel === "WHATSAPP";
+  if (!canReply || (whatsapp && !serviceWindowOpen)) {
+    return (
+      <div className="border-t bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">
+        {canReply ? WINDOW_CLOSED_HINT : BLOCKED_HINT[mode]}
+      </div>
+    );
   }
 
   return (
@@ -83,7 +93,13 @@ export function Composer({ companyId, conversationId, canReply, mode }: Composer
         </Button>
       </div>
       <p className="mt-1.5 text-[11px] text-muted-foreground">
-        {error ? <span className="text-destructive">{error}</span> : "Mensagem interna: nesta fase nada é enviado ao WhatsApp."}
+        {error ? (
+          <span className="text-destructive">{error}</span>
+        ) : whatsapp ? (
+          "Será enviada ao cliente pelo WhatsApp."
+        ) : (
+          "Conversa interna: nada é enviado ao cliente."
+        )}
       </p>
     </form>
   );

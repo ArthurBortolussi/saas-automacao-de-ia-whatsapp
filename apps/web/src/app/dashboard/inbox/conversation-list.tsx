@@ -2,6 +2,7 @@ import { formatPhoneNumber, type ConversationSummary, type InboxFilter, type Pag
 import { cn } from "@arthur-ai/ui/lib/utils";
 import { Inbox } from "lucide-react";
 import Link from "next/link";
+import { ChannelBadge } from "@/components/channel-badge";
 import { ConversationModeBadge } from "@/components/contact-badges";
 import { formatListTime } from "@/lib/format";
 
@@ -39,6 +40,8 @@ export function ConversationList({ conversations, filter, selectedId }: Conversa
             <Link
               key={item.value}
               href={query(item.value === "all" ? {} : { filter: item.value })}
+              // Sem prefetch: com o polling, o Next re-buscaria cada filtro a cada atualização.
+              prefetch={false}
               aria-current={filter === item.value ? "page" : undefined}
               className={cn(
                 "rounded-md px-2 py-1 text-xs transition-colors",
@@ -64,6 +67,7 @@ export function ConversationList({ conversations, filter, selectedId }: Conversa
               <li key={conversation.id}>
                 <Link
                   href={query({ ...(filter === "all" ? {} : { filter }), c: conversation.id })}
+                  prefetch={false}
                   aria-current={selected ? "true" : undefined}
                   className={cn("block space-y-1.5 px-4 py-3 transition-colors", selected ? "bg-muted" : "hover:bg-muted/50")}
                 >
@@ -86,7 +90,10 @@ export function ConversationList({ conversations, filter, selectedId }: Conversa
                       </span>
                     ) : null}
                   </div>
-                  <ConversationModeBadge mode={conversation.mode} className="text-[11px]" />
+                  <div className="flex items-center gap-2">
+                    <ConversationModeBadge mode={conversation.mode} className="text-[11px]" />
+                    <ChannelBadge channel={conversation.channel} />
+                  </div>
                 </Link>
               </li>
             );

@@ -35,7 +35,7 @@ export function ContactPanel({ conversation }: { conversation: ConversationDetai
         <p className="text-sm whitespace-pre-wrap">{contact.notes ?? <span className="text-muted-foreground">Sem observações.</span>}</p>
       </div>
       <Button asChild variant="outline" className="w-full">
-        <Link href={`/dashboard/contacts/${contact.id}`}>Abrir cadastro completo</Link>
+        <Link href={`/dashboard/contacts/${contact.id}`} prefetch={false}>Abrir cadastro completo</Link>
       </Button>
     </div>
   );

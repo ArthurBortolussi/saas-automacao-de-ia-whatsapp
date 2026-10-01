@@ -3,7 +3,7 @@ import type { ApiError } from "@arthur-ai/shared";
 export type ClientResult<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
 /** Mutação a partir do navegador, sempre via /api (same-origin, cookie first-party). */
-export async function apiMutate<T = void>(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<ClientResult<T>> {
+export async function apiMutate<T = void>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<ClientResult<T>> {
   try {
     const response = await fetch(`/api${path}`, {
       method,
