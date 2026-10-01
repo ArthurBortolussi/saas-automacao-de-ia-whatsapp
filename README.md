@@ -7,6 +7,8 @@ Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empre
 > **WhatsApp Cloud API oficial da Meta** (Fase 3). A IA (respostas automáticas) **ainda não existe**: chega na Fase 4.
 >
 > ⚠️ A integração foi testada **apenas com uma Graph API simulada**. Ela ainda não foi validada com um número real da Meta.
+>
+> Contexto para sessões do Claude Code (regras de segurança, convenções e o plano da Fase 4): veja [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
