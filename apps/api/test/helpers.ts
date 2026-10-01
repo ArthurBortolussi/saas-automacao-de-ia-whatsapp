@@ -1,7 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
-import type { CompanyStatus, GlobalRole, MemberRole, UserStatus } from "@arthur-ai/database";
+import type { CompanyStatus, ConversationMode, GlobalRole, MemberRole, UserStatus } from "@arthur-ai/database";
 import { hashPassword } from "@arthur-ai/database/password";
 import request from "supertest";
 import { expect } from "vitest";
@@ -36,7 +36,7 @@ export async function createTestApp(rateLimit: LoginRateLimitOptions = RELAXED_R
 
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
   );
 }
 
@@ -94,3 +94,47 @@ export async function login(http: TestContext["http"], email: string, password =
   return (cookie ?? "").split(";")[0] ?? "";
 }
 
+
+let phoneSequence = 0;
+/** Telefone único e válido (dígitos com DDI 55). */
+export function uniquePhone(): string {
+  phoneSequence += 1;
+  return `55119${String(Date.now() % 10_000_000).padStart(7, "0").slice(0, 4)}${String(phoneSequence).padStart(4, "0")}`;
+}
+
+export async function createContactRow(prisma: PrismaService, companyId: string, name = "Contato Teste") {
+  return prisma.contact.create({ data: { companyId, name, phone: uniquePhone() } });
+}
+
+/** Conversa com mensagens recebidas não lidas, como chegariam por um canal externo. */
+export async function createConversationRow(
+  prisma: PrismaService,
+  companyId: string,
+  contactId: string,
+  options: { mode?: ConversationMode; inbound?: string[] } = {},
+) {
+  const inbound = options.inbound ?? [];
+  const conversation = await prisma.conversation.create({
+    data: {
+      companyId,
+      contactId,
+      mode: options.mode ?? "AI",
+      unreadCount: inbound.length,
+      lastMessageAt: inbound.length ? new Date() : null,
+      lastMessagePreview: inbound.at(-1) ?? null,
+    },
+  });
+  for (const [index, body] of inbound.entries()) {
+    await prisma.message.create({
+      data: {
+        companyId,
+        conversationId: conversation.id,
+        direction: "INBOUND",
+        senderType: "CONTACT",
+        body,
+        createdAt: new Date(Date.now() - (inbound.length - index) * 1000),
+      },
+    });
+  }
+  return conversation;
+}

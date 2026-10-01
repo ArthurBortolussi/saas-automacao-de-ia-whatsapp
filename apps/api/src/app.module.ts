@@ -9,11 +9,22 @@ import { PasswordChangeGuard } from "./common/guards/password-change.guard.js";
 import { SessionGuard } from "./common/guards/session.guard.js";
 import { createValidationPipe } from "./common/validation.js";
 import { CompaniesModule } from "./companies/companies.module.js";
+import { ContactsModule } from "./contacts/contacts.module.js";
+import { ConversationsModule } from "./conversations/conversations.module.js";
 import { ConfigModule } from "./config/config.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 
 @Module({
-  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, CompaniesModule, AdminModule],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    AuditModule,
+    AuthModule,
+    CompaniesModule,
+    AdminModule,
+    ContactsModule,
+    ConversationsModule,
+  ],
   providers: [
     // Guards globais, nesta ordem: Origin (CSRF) → sessão (401) → troca de senha obrigatória (403).
     { provide: APP_GUARD, useClass: OriginGuard },

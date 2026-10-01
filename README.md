@@ -3,8 +3,8 @@
 Plataforma B2B **gerenciada** de atendimento automatizado (futuramente via WhatsApp + IA).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 1** — fundação multi-tenant, autenticação, autorização, painel SUPERADMIN e área da empresa.
-> IA, WhatsApp, inbox, contatos etc. **não** estão implementados (as telas existem só como placeholders).
+> **Estado atual: FASE 2** — fundação multi-tenant (Fase 1) + contatos, conversas e caixa de entrada internas (Fase 2).
+> IA, WhatsApp e integrações externas **não** estão implementados: mensagens existem só dentro do sistema.
 
 ---
 
@@ -58,6 +58,24 @@ O `CompanyAccessGuard` é a **resolução central de tenant**:
 Nesta fase um usuário pertence a no máximo uma empresa (`CompanyMember.userId` único), mas o guard usa sempre o par `(userId, companyId)`: remover essa unicidade no futuro é só uma migration.
 
 ---
+
+### Contatos e conversas (Fase 2)
+
+- `Contact`, `Conversation` e `Message` têm `companyId` e são acessados só por rotas `/companies/:companyId/...` atrás do `CompanyAccessGuard`.
+- Os services buscam sempre pela chave composta `(id, companyId)`: um ID de outra empresa simplesmente não existe (404).
+- **Integridade no banco**: `Conversation → Contact` e `Message → Conversation` usam FK composta `(id, companyId)`. O PostgreSQL recusa ligar uma conversa da empresa A a um contato da empresa B, mesmo que o código erre.
+- Telefone salvo só com dígitos e DDI (`5511999990000`). Único por empresa (`@@unique([companyId, phone])`); empresas diferentes podem ter o mesmo telefone.
+- **Modo de atendimento** (`AI` | `HUMAN` | `PAUSED`):
+
+| Ação | De | Para |
+|---|---|---|
+| Assumir atendimento | AI, PAUSED | HUMAN (responsável = quem assumiu) |
+| Devolver para IA | HUMAN, PAUSED | AI (sem responsável) |
+| Pausar | AI, HUMAN | PAUSED (lembra o modo anterior) |
+| Reativar | PAUSED | modo anterior à pausa |
+
+- Humanos só enviam mensagem em `HUMAN` (evita IA e humano respondendo juntos). A futura integração com IA **deve** chamar `aiMayReply(mode)` de `@arthur-ai/shared` antes de responder: só `AI` permite.
+- Trocas de modo usam concorrência otimista: duas pessoas clicando ao mesmo tempo → uma vence, a outra recebe 409.
 
 ## Pré-requisitos
 
@@ -130,6 +148,15 @@ pnpm db:seed
 
 A segunda empresa existe para testar o isolamento manualmente: logado como `owner@demo.local`, tente `GET /api/companies/<id da Outra Empresa>` → 403.
 
+Contatos e conversas fictícios (nomes terminam em "Exemplo", telefones `55 11 90000-01xx`):
+
+| Empresa | Contatos | Conversas |
+|---|---|---|
+| Empresa Demo (DEV) | 5 (todos os status) | Mariana: IA, 2 não lidas · Carlos: humano · Fernanda: pausada, 1 não lida |
+| Outra Empresa (DEV) | 2 (um com o **mesmo telefone** da Mariana) | 1 com a IA, 1 não lida |
+
+O seed não recria conversas de contatos que já têm alguma; para voltar ao estado inicial, apague as tabelas `Message`, `Conversation` e `Contact` do banco de dev e rode `pnpm db:seed`.
+
 ## Rodando
 
 ```bash
@@ -138,7 +165,7 @@ pnpm dev:web        # http://localhost:3000      (Next.js)
 ```
 
 - **SUPERADMIN**: entre em http://localhost:3000/login com `admin@arthurai.local` → `/admin`.
-- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`.
+- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`, `/dashboard/contacts` e `/dashboard/inbox`.
 - Usuário criado pelo painel: no primeiro login é levado a `/change-password`.
 
 Produção: `pnpm build`, depois `node apps/api/dist/main.js` e `pnpm --filter @arthur-ai/web start`.
@@ -160,4 +187,9 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 - **Lockout por e-mail**: 5 falhas em 15 min bloqueiam aquele e-mail, inclusive para o dono legítimo (troca consciente de disponibilidade por proteção contra força bruta).
 - **Sessões expiradas** são removidas quando usadas; não há job de limpeza periódica.
 - **Sem edição de empresa/usuário** pelo painel (pausar, desativar, trocar role): nesta fase só pelo banco.
+- **Inbox sem tempo real**: a lista e o chat atualizam ao agir ou recarregar a página (sem polling/websocket).
+- **Inbox mostra as 50 conversas mais recentes** do filtro (com aviso quando há mais); paginação da lista fica para depois.
+- **Mensagens recebidas** só existem via seed: não há canal de entrada nesta fase.
+- **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.
+- **Telefone**: a ambiguidade do 9º dígito de celulares brasileiros no WhatsApp ainda não é tratada.
 - **CSP parcial** (`frame-ancestors`, `base-uri`, `form-action`, `object-src`); `script-src` com nonce fica para depois.

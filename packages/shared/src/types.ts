@@ -1,4 +1,14 @@
-import type { CompanyStatus, GlobalRole, MemberRole, UserStatus } from "./enums.js";
+import type {
+  CompanyStatus,
+  ContactSource,
+  ContactStatus,
+  ConversationMode,
+  GlobalRole,
+  MemberRole,
+  MessageDirection,
+  MessageSenderType,
+  UserStatus,
+} from "./enums.js";
 
 // Formatos de resposta da API. Datas trafegam como string ISO.
 
@@ -98,4 +108,58 @@ export function parseCookieSecure(value: string | undefined, nodeEnv: string | u
   if (value === "true") return true;
   if (value === "false") return false;
   return nodeEnv === "production";
+}
+
+// ---------------------------------------------------------------- FASE 2
+
+export interface ContactSummary {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  status: ContactStatus;
+  source: ContactSource;
+  createdAt: string;
+}
+
+export interface ContactDetail extends ContactSummary {
+  notes: string | null;
+  updatedAt: string;
+}
+
+export interface UserRef {
+  id: string;
+  name: string;
+}
+
+export interface ConversationSummary {
+  id: string;
+  mode: ConversationMode;
+  unreadCount: number;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  createdAt: string;
+  contact: { id: string; name: string; phone: string; status: ContactStatus };
+  assignedUser: UserRef | null;
+}
+
+export interface ConversationDetail extends Omit<ConversationSummary, "contact"> {
+  contact: ContactDetail;
+  aiMayReply: boolean;
+  humanMayReply: boolean;
+}
+
+export interface MessageItem {
+  id: string;
+  direction: MessageDirection;
+  senderType: MessageSenderType;
+  sender: UserRef | null;
+  body: string;
+  createdAt: string;
+}
+
+export interface MessagePage {
+  items: MessageItem[];
+  // true quando existem mensagens mais antigas que a primeira de items.
+  hasMore: boolean;
 }

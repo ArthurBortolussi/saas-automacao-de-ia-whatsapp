@@ -38,6 +38,14 @@ export async function fetchPageData<T>(path: string): Promise<T> {
   throw new Error(result.error?.message ?? `Falha ao carregar ${path} (${result.status}).`);
 }
 
+/** Como fetchPageData, mas 404 vira null (ex.: conversa selecionada que não existe para esta empresa). */
+export async function fetchPageDataOrNull<T>(path: string): Promise<T | null> {
+  const result = await apiGet<T>(path);
+  if (result.ok) return result.data;
+  if (result.status === 404 || result.status === 400) return null;
+  return fetchPageData<T>(path);
+}
+
 /** Usuário da sessão atual, ou null. Memoizado por request. */
 export const getMe = cache(async (): Promise<MeResponse | null> => {
   const result = await apiGet<MeResponse>("/auth/me");
@@ -52,4 +60,11 @@ export async function requireUser(): Promise<MeResponse> {
   if (!me) redirect("/login");
   if (me.user.mustChangePassword) redirect("/change-password");
   return me;
+}
+
+/** Exige vínculo com empresa e devolve o id dela. A API revalida o vínculo em toda chamada. */
+export async function requireMembership(): Promise<{ me: MeResponse; companyId: string }> {
+  const me = await requireUser();
+  if (!me.membership) redirect("/");
+  return { me, companyId: me.membership.company.id };
 }

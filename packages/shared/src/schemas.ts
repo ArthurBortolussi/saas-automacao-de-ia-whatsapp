@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { isValidCnpj, normalizeCnpj } from "./cnpj.js";
-import { BRAZILIAN_STATES, MEMBER_ROLES } from "./enums.js";
+import { CONVERSATION_ACTIONS } from "./conversation-rules.js";
+import { BRAZILIAN_STATES, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
+import { normalizePhone } from "./phone.js";
 
 // Mensagens padrão do Zod em português (usadas quando o schema não define mensagem própria).
 z.config(z.locales.ptBR());
@@ -114,3 +116,109 @@ export const listUsersQuerySchema = strictObject({
   pageSize: z.coerce.number().int().min(1).max(COMPANY_LIST_MAX_PAGE_SIZE).default(20),
 });
 export type ListUsersQuery = z.output<typeof listUsersQuerySchema>;
+
+// ---------------------------------------------------------------- FASE 2
+
+export const uuidSchema = z.uuid("Identificador inválido.");
+
+export const CONTACT_LIST_MAX_PAGE_SIZE = 50;
+export const MESSAGE_MAX_LENGTH = 4000;
+
+const phoneSchema = z
+  .string({ error: "Informe o telefone." })
+  .trim()
+  .max(30, "Telefone inválido.")
+  .transform((value, ctx) => {
+    const phone = normalizePhone(value);
+    if (!phone) {
+      ctx.addIssue({ code: "custom", message: "Telefone inválido. Use DDD + número, ou DDI + DDD + número." });
+      return z.NEVER;
+    }
+    return phone;
+  });
+
+const contactFields = {
+  name: text("o nome", 2, 120),
+  phone: phoneSchema,
+  email: optional(emailSchema),
+  status: z.enum(CONTACT_STATUSES, { error: "Status inválido." }),
+  source: z.enum(CONTACT_SOURCES, { error: "Origem inválida." }),
+  notes: optional(z.string().trim().max(2000, "Máximo de 2000 caracteres.")),
+};
+
+export const createContactSchema = strictObject({
+  ...contactFields,
+  status: contactFields.status.default("NEW"),
+  source: contactFields.source.default("MANUAL"),
+});
+export type CreateContactInput = z.input<typeof createContactSchema>;
+export type CreateContactData = z.output<typeof createContactSchema>;
+
+/**
+ * Edição parcial. Em campos opcionais, null limpa o valor; ausente mantém.
+ * (string vazia vinda de formulário também limpa.)
+ */
+const clearable = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? null : value), schema.nullable().optional());
+
+export const updateContactSchema = strictObject({
+  name: contactFields.name.optional(),
+  phone: phoneSchema.optional(),
+  email: clearable(emailSchema),
+  status: contactFields.status.optional(),
+  source: contactFields.source.optional(),
+  notes: clearable(z.string().trim().max(2000, "Máximo de 2000 caracteres.")),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: "Nada para atualizar.",
+});
+export type UpdateContactInput = z.input<typeof updateContactSchema>;
+export type UpdateContactData = z.output<typeof updateContactSchema>;
+
+const pageFields = {
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(CONTACT_LIST_MAX_PAGE_SIZE).default(20),
+};
+
+export const listContactsQuerySchema = strictObject({
+  q: optional(z.string().trim().max(100, "Busca muito longa.")),
+  status: optional(z.enum(CONTACT_STATUSES, { error: "Status inválido." })),
+  ...pageFields,
+});
+export type ListContactsQuery = z.output<typeof listContactsQuerySchema>;
+
+export const INBOX_FILTERS = ["all", "ai", "human", "paused", "unread"] as const;
+export type InboxFilter = (typeof INBOX_FILTERS)[number];
+
+export const listConversationsQuerySchema = strictObject({
+  filter: z.enum(INBOX_FILTERS, { error: "Filtro inválido." }).default("all"),
+  contactId: optional(uuidSchema),
+  ...pageFields,
+});
+export type ListConversationsQuery = z.output<typeof listConversationsQuerySchema>;
+
+export const createConversationSchema = strictObject({
+  contactId: uuidSchema,
+});
+export type CreateConversationInput = z.infer<typeof createConversationSchema>;
+
+export const sendMessageSchema = strictObject({
+  body: z
+    .string({ error: "Escreva a mensagem." })
+    .trim()
+    .min(1, "Escreva a mensagem.")
+    .max(MESSAGE_MAX_LENGTH, `Máximo de ${MESSAGE_MAX_LENGTH} caracteres.`),
+});
+export type SendMessageInput = z.infer<typeof sendMessageSchema>;
+
+export const listMessagesQuerySchema = strictObject({
+  // Cursor: id da mensagem mais antiga já carregada; devolve as anteriores a ela.
+  before: optional(uuidSchema),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type ListMessagesQuery = z.output<typeof listMessagesQuerySchema>;
+
+export const conversationActionSchema = strictObject({
+  action: z.enum(CONVERSATION_ACTIONS, { error: "Ação inválida." }),
+});
+export type ConversationActionInput = z.infer<typeof conversationActionSchema>;
+

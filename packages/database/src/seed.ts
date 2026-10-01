@@ -1,6 +1,13 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { createPrismaClient, type CompanyStatus, type MemberRole } from "./index.js";
+import {
+  createPrismaClient,
+  type CompanyStatus,
+  type ContactSource,
+  type ContactStatus,
+  type ConversationMode,
+  type MemberRole,
+} from "./index.js";
 import { hashPassword } from "./password.js";
 
 const rootEnv = resolve(import.meta.dirname, "../../../.env");
@@ -20,6 +27,24 @@ if (!databaseUrl) {
 
 const prisma = createPrismaClient(databaseUrl);
 
+// Conversas fictícias. "c" = mensagem do cliente (INBOUND), "a" = resposta de atendente (OUTBOUND).
+interface SeedConversation {
+  mode: ConversationMode;
+  unread: number;
+  messages: ["c" | "a", string][];
+}
+
+interface SeedContact {
+  name: string;
+  phone: string;
+  email?: string;
+  status: ContactStatus;
+  source: ContactSource;
+  conversation?: SeedConversation;
+}
+
+const DEV_NOTE = "Contato fictício gerado pelo seed de desenvolvimento.";
+
 interface SeedCompany {
   slug: string;
   name: string;
@@ -29,6 +54,7 @@ interface SeedCompany {
   state: string;
   status: CompanyStatus;
   member: { name: string; email: string; password: string; role: MemberRole };
+  contacts: SeedContact[];
 }
 
 const companies: SeedCompany[] = [
@@ -41,6 +67,56 @@ const companies: SeedCompany[] = [
     state: "SP",
     status: "ACTIVE",
     member: { name: "Dono Demo", email: "owner@demo.local", password: "demo-owner-dev-123", role: "OWNER" },
+    contacts: [
+      {
+        name: "Mariana Exemplo",
+        phone: "5511900000101",
+        email: "mariana@exemplo.dev",
+        status: "LEAD",
+        source: "WHATSAPP",
+        conversation: {
+          mode: "AI",
+          unread: 2,
+          messages: [
+            ["c", "Olá! Vocês atendem aos sábados?"],
+            ["c", "Gostaria de agendar uma limpeza."],
+          ],
+        },
+      },
+      {
+        name: "Carlos Exemplo",
+        phone: "5511900000102",
+        status: "QUALIFIED",
+        source: "WEBSITE",
+        conversation: {
+          mode: "HUMAN",
+          unread: 0,
+          messages: [
+            ["c", "Qual o valor do clareamento?"],
+            ["a", "Olá, Carlos! O clareamento começa em R$ 600. Posso agendar uma avaliação?"],
+            ["c", "Pode ser na quinta à tarde?"],
+            ["a", "Quinta às 15h está livre. Confirmo para você?"],
+          ],
+        },
+      },
+      {
+        name: "Fernanda Exemplo",
+        phone: "5511900000103",
+        status: "CUSTOMER",
+        source: "REFERRAL",
+        conversation: {
+          mode: "PAUSED",
+          unread: 1,
+          messages: [
+            ["c", "Preciso remarcar minha consulta."],
+            ["a", "Claro! Vou verificar a agenda e retorno em seguida."],
+            ["c", "Obrigada, aguardo."],
+          ],
+        },
+      },
+      { name: "Rafael Exemplo", phone: "5511900000104", status: "NEW", source: "MANUAL" },
+      { name: "Juliana Exemplo", phone: "5511900000105", status: "LOST", source: "SOCIAL" },
+    ],
   },
   {
     slug: "outra-empresa-dev",
@@ -51,6 +127,21 @@ const companies: SeedCompany[] = [
     state: "RJ",
     status: "ACTIVE",
     member: { name: "Dono Outra", email: "owner@outra.local", password: "outra-owner-dev-123", role: "OWNER" },
+    contacts: [
+      {
+        // Mesmo telefone de um contato da Empresa Demo: permitido entre empresas diferentes.
+        name: "Mariana (outra empresa) Exemplo",
+        phone: "5511900000101",
+        status: "NEW",
+        source: "WHATSAPP",
+        conversation: {
+          mode: "AI",
+          unread: 1,
+          messages: [["c", "Bom dia, quero informações sobre apartamentos para alugar."]],
+        },
+      },
+      { name: "Pedro Exemplo", phone: "5521900000201", status: "LEAD", source: "WEBSITE" },
+    ],
   },
 ];
 
@@ -68,7 +159,7 @@ async function main() {
   console.log(`SUPERADMIN: ${admin.email}`);
 
   for (const seed of companies) {
-    const { member, slug, ...data } = seed;
+    const { member, slug, contacts: seedContacts, ...data } = seed;
     const company = await prisma.company.upsert({
       where: { slug },
       create: { slug, ...data },
@@ -81,6 +172,47 @@ async function main() {
       update: { companyId: company.id, role: member.role },
     });
     console.log(`Empresa: ${company.name} (${company.slug}) → ${member.role} ${user.email}`);
+
+    for (const contactSeed of seedContacts) {
+      const { conversation: conversationSeed, ...contactData } = contactSeed;
+      const contact = await prisma.contact.upsert({
+        where: { companyId_phone: { companyId: company.id, phone: contactData.phone } },
+        create: { ...contactData, companyId: company.id, notes: DEV_NOTE },
+        update: {},
+      });
+      // Idempotente: só cria a conversa de exemplo se o contato ainda não tiver nenhuma.
+      if (!conversationSeed || (await prisma.conversation.count({ where: { contactId: contact.id } })) > 0) continue;
+
+      const start = Date.now() - conversationSeed.messages.length * 5 * 60_000;
+      const times = conversationSeed.messages.map((_, index) => new Date(start + index * 5 * 60_000));
+      const last = conversationSeed.messages.at(-1);
+      await prisma.$transaction(async (tx) => {
+        const conversation = await tx.conversation.create({
+          data: {
+            companyId: company.id,
+            contactId: contact.id,
+            mode: conversationSeed.mode,
+            modeBeforePause: conversationSeed.mode === "PAUSED" ? "HUMAN" : null,
+            assignedUserId: conversationSeed.mode === "AI" ? null : user.id,
+            unreadCount: conversationSeed.unread,
+            lastMessageAt: times.at(-1) ?? null,
+            lastMessagePreview: last?.[1] ?? null,
+          },
+        });
+        await tx.message.createMany({
+          data: conversationSeed.messages.map(([who, body], index) => ({
+            companyId: company.id,
+            conversationId: conversation.id,
+            direction: who === "c" ? "INBOUND" : "OUTBOUND",
+            senderType: who === "c" ? "CONTACT" : "AGENT",
+            senderUserId: who === "c" ? null : user.id,
+            body,
+            createdAt: times[index] ?? new Date(),
+          })),
+        });
+      });
+    }
+    console.log(`  ${seedContacts.length} contatos fictícios`);
   }
 }
 

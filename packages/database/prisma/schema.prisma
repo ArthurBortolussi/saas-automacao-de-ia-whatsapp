@@ -45,9 +45,11 @@ model User {
   createdAt          DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @db.Timestamptz(3)
 
-  sessions    Session[]
-  membership  CompanyMember?
-  auditEvents AuditLog[]
+  sessions              Session[]
+  membership            CompanyMember?
+  auditEvents           AuditLog[]
+  assignedConversations Conversation[]
+  sentMessages          Message[]
 }
 
 model Session {
@@ -83,8 +85,11 @@ model Company {
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
 
-  members     CompanyMember[]
-  auditEvents AuditLog[]
+  members       CompanyMember[]
+  auditEvents   AuditLog[]
+  contacts      Contact[]
+  conversations Conversation[]
+  messages      Message[]
 
   @@index([status])
 }
@@ -123,4 +128,112 @@ model AuditLog {
 
   @@index([companyId])
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------- FASE 2
+
+enum ContactStatus {
+  NEW
+  LEAD
+  QUALIFIED
+  CUSTOMER
+  LOST
+}
+
+enum ContactSource {
+  MANUAL
+  WHATSAPP
+  WEBSITE
+  REFERRAL
+  SOCIAL
+  OTHER
+}
+
+/// AI: a IA (futura) pode responder. HUMAN: só humanos respondem. PAUSED: ninguém responde.
+enum ConversationMode {
+  AI
+  HUMAN
+  PAUSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageSenderType {
+  CONTACT
+  AGENT
+  AI
+  SYSTEM
+}
+
+model Contact {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  companyId String        @db.Uuid
+  name      String        @db.VarChar(120)
+  // Somente dígitos, com DDI (ex.: 5511999990000).
+  phone     String        @db.VarChar(15)
+  email     String?       @db.VarChar(254)
+  status    ContactStatus @default(NEW)
+  source    ContactSource @default(MANUAL)
+  notes     String?       @db.VarChar(2000)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversations Conversation[]
+
+  // Mesmo telefone pode existir em empresas diferentes, nunca duas vezes na mesma.
+  // Também serve de índice para buscas por companyId.
+  @@unique([companyId, phone])
+  // Alvo das FKs compostas que impedem ligar registros de empresas diferentes.
+  @@unique([id, companyId])
+  @@index([companyId, createdAt])
+}
+
+model Conversation {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  companyId          String            @db.Uuid
+  contactId          String            @db.Uuid
+  mode               ConversationMode  @default(AI)
+  // Modo a restaurar em "Reativar atendimento".
+  modeBeforePause    ConversationMode?
+  assignedUserId     String?           @db.Uuid
+  // Desnormalizados para a lista da inbox não precisar ler mensagens.
+  lastMessageAt      DateTime?         @db.Timestamptz(3)
+  lastMessagePreview String?           @db.VarChar(160)
+  unreadCount        Int               @default(0)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  // FK composta: o contato precisa ser da MESMA empresa da conversa (garantido pelo banco).
+  contact      Contact   @relation(fields: [contactId, companyId], references: [id, companyId], onDelete: Restrict)
+  // SetNull: remover o usuário não apaga o atendimento, só o responsável.
+  assignedUser User?     @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  messages     Message[]
+
+  @@unique([id, companyId])
+  @@index([companyId, lastMessageAt])
+  @@index([companyId, mode])
+  @@index([contactId])
+}
+
+model Message {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  companyId      String            @db.Uuid
+  conversationId String            @db.Uuid
+  direction      MessageDirection
+  senderType     MessageSenderType
+  senderUserId   String?           @db.Uuid
+  body           String            @db.VarChar(4000)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  // FK composta: a mensagem pertence à MESMA empresa da conversa.
+  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
 }

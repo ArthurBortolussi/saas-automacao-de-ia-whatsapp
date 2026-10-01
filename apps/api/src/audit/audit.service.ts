@@ -8,13 +8,17 @@ export const AUDIT_ACTIONS = {
   LOGIN_SUCCEEDED: "auth.login_succeeded",
   LOGIN_FAILED: "auth.login_failed",
   PASSWORD_CHANGED: "auth.password_changed",
+  CONTACT_CREATED: "contact.created",
+  CONTACT_UPDATED: "contact.updated",
+  CONVERSATION_CREATED: "conversation.created",
+  CONVERSATION_MODE_CHANGED: "conversation.mode_changed",
 } as const;
 type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   action: AuditAction;
   actorUserId: string | null;
-  entityType: "User" | "Company" | "CompanyMember";
+  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation";
   entityId: string | null;
   companyId?: string | null;
   // Nunca inclua senhas, hashes ou tokens aqui.
