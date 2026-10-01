@@ -18,7 +18,7 @@
     "db:migrate": "pnpm --filter @arthur-ai/database run migrate:dev",
     "db:deploy": "pnpm --filter @arthur-ai/database run migrate:deploy",
     "db:status": "pnpm --filter @arthur-ai/database run migrate:status",
-    "db:seed": "pnpm --filter @arthur-ai/database run build && pnpm --filter @arthur-ai/database run seed"
+    "db:seed": "pnpm build:packages && pnpm --filter @arthur-ai/database run seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
