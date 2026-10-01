@@ -13,6 +13,7 @@ import { ContactsModule } from "./contacts/contacts.module.js";
 import { ConversationsModule } from "./conversations/conversations.module.js";
 import { ConfigModule } from "./config/config.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { WhatsAppModule } from "./whatsapp/whatsapp.module.js";
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PrismaModule } from "./prisma/prisma.module.js";
     AdminModule,
     ContactsModule,
     ConversationsModule,
+    WhatsAppModule,
   ],
   providers: [
     // Guards globais, nesta ordem: Origin (CSRF) → sessão (401) → troca de senha obrigatória (403).

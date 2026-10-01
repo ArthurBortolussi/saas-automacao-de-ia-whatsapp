@@ -222,3 +222,49 @@ export const conversationActionSchema = strictObject({
 });
 export type ConversationActionInput = z.infer<typeof conversationActionSchema>;
 
+
+// ---------------------------------------------------------------- FASE 3
+
+const metaId = (label: string) =>
+  z
+    .string({ error: `Informe o ${label}.` })
+    .trim()
+    .regex(/^\d{5,32}$/, `${label} inválido: use apenas os dígitos fornecidos pela Meta.`);
+
+// Tokens da Meta são longos e sem espaços; não validamos o formato interno (opaco).
+const accessTokenSchema = z
+  .string({ error: "Informe o token de acesso." })
+  .trim()
+  .min(20, "Token de acesso muito curto.")
+  .max(2048, "Token de acesso muito longo.")
+  .regex(/^\S+$/, "O token não pode conter espaços.");
+
+const whatsappFields = {
+  wabaId: metaId("WABA ID"),
+  phoneNumberId: metaId("Phone Number ID"),
+  displayPhoneNumber: z
+    .string({ error: "Informe o número." })
+    .trim()
+    .min(8, "Número inválido.")
+    .max(32, "Número inválido.")
+    .regex(/^\+?[\d\s()-]+$/, "Número inválido."),
+  verifiedName: optional(text("o nome de exibição", 2, 120)),
+};
+
+export const createWhatsAppAccountSchema = strictObject({ ...whatsappFields, accessToken: accessTokenSchema });
+export type CreateWhatsAppAccountInput = z.input<typeof createWhatsAppAccountSchema>;
+export type CreateWhatsAppAccountData = z.output<typeof createWhatsAppAccountSchema>;
+
+/** Atualização: token vazio/ausente mantém o atual (ele nunca é devolvido ao navegador). */
+export const updateWhatsAppAccountSchema = strictObject({
+  ...whatsappFields,
+  accessToken: optional(accessTokenSchema),
+});
+export type UpdateWhatsAppAccountInput = z.input<typeof updateWhatsAppAccountSchema>;
+export type UpdateWhatsAppAccountData = z.output<typeof updateWhatsAppAccountSchema>;
+
+export const WHATSAPP_ACCOUNT_ACTIONS = ["DISABLE", "ENABLE", "TEST"] as const;
+export const whatsappAccountActionSchema = strictObject({
+  action: z.enum(WHATSAPP_ACCOUNT_ACTIONS, { error: "Ação inválida." }),
+});
+export type WhatsAppAccountAction = (typeof WHATSAPP_ACCOUNT_ACTIONS)[number];

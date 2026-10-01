@@ -23,3 +23,11 @@ export const ACTION_ALLOWED_FROM: Record<ConversationAction, readonly Conversati
   PAUSE: ["AI", "HUMAN"],
   RESUME: ["PAUSED"],
 };
+
+/** Janela de atendimento do WhatsApp: mensagens livres só até 24h após a última mensagem do cliente. */
+export const WHATSAPP_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export function isServiceWindowOpen(lastInboundAt: Date | string | null, now: Date = new Date()): boolean {
+  if (!lastInboundAt) return false;
+  return now.getTime() - new Date(lastInboundAt).getTime() < WHATSAPP_SERVICE_WINDOW_MS;
+}

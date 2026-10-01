@@ -85,11 +85,13 @@ model Company {
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
 
-  members       CompanyMember[]
-  auditEvents   AuditLog[]
-  contacts      Contact[]
-  conversations Conversation[]
-  messages      Message[]
+  members         CompanyMember[]
+  auditEvents     AuditLog[]
+  contacts        Contact[]
+  conversations   Conversation[]
+  messages        Message[]
+  whatsappAccount WhatsAppAccount?
+  webhookEvents   WhatsAppWebhookEvent[]
 
   @@index([status])
 }
@@ -169,17 +171,19 @@ enum MessageSenderType {
 }
 
 model Contact {
-  id        String        @id @default(uuid(7)) @db.Uuid
-  companyId String        @db.Uuid
-  name      String        @db.VarChar(120)
+  id         String        @id @default(uuid(7)) @db.Uuid
+  companyId  String        @db.Uuid
+  name       String        @db.VarChar(120)
   // Somente dígitos, com DDI (ex.: 5511999990000).
-  phone     String        @db.VarChar(15)
-  email     String?       @db.VarChar(254)
-  status    ContactStatus @default(NEW)
-  source    ContactSource @default(MANUAL)
-  notes     String?       @db.VarChar(2000)
-  createdAt DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+  phone      String        @db.VarChar(15)
+  // wa_id informado pela Meta (pode diferir do telefone digitado, ex.: 9º dígito no Brasil).
+  whatsappId String?       @db.VarChar(20)
+  email      String?       @db.VarChar(254)
+  status     ContactStatus @default(NEW)
+  source     ContactSource @default(MANUAL)
+  notes      String?       @db.VarChar(2000)
+  createdAt  DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime      @updatedAt @db.Timestamptz(3)
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   conversations Conversation[]
@@ -189,23 +193,27 @@ model Contact {
   @@unique([companyId, phone])
   // Alvo das FKs compostas que impedem ligar registros de empresas diferentes.
   @@unique([id, companyId])
+  @@unique([companyId, whatsappId])
   @@index([companyId, createdAt])
 }
 
 model Conversation {
-  id                 String            @id @default(uuid(7)) @db.Uuid
-  companyId          String            @db.Uuid
-  contactId          String            @db.Uuid
-  mode               ConversationMode  @default(AI)
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  companyId          String              @db.Uuid
+  contactId          String              @db.Uuid
+  channel            ConversationChannel @default(INTERNAL)
+  mode               ConversationMode    @default(AI)
   // Modo a restaurar em "Reativar atendimento".
   modeBeforePause    ConversationMode?
-  assignedUserId     String?           @db.Uuid
+  assignedUserId     String?             @db.Uuid
   // Desnormalizados para a lista da inbox não precisar ler mensagens.
-  lastMessageAt      DateTime?         @db.Timestamptz(3)
-  lastMessagePreview String?           @db.VarChar(160)
-  unreadCount        Int               @default(0)
-  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+  lastMessageAt      DateTime?           @db.Timestamptz(3)
+  lastMessagePreview String?             @db.VarChar(160)
+  unreadCount        Int                 @default(0)
+  // Última mensagem do cliente: base da janela de atendimento de 24h do WhatsApp.
+  lastInboundAt      DateTime?           @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
 
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // FK composta: o contato precisa ser da MESMA empresa da conversa (garantido pelo banco).
@@ -217,23 +225,118 @@ model Conversation {
   @@unique([id, companyId])
   @@index([companyId, lastMessageAt])
   @@index([companyId, mode])
-  @@index([contactId])
+  @@index([contactId, channel])
 }
 
 model Message {
-  id             String            @id @default(uuid(7)) @db.Uuid
-  companyId      String            @db.Uuid
-  conversationId String            @db.Uuid
-  direction      MessageDirection
-  senderType     MessageSenderType
-  senderUserId   String?           @db.Uuid
-  body           String            @db.VarChar(4000)
-  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  id                String                 @id @default(uuid(7)) @db.Uuid
+  companyId         String                 @db.Uuid
+  conversationId    String                 @db.Uuid
+  direction         MessageDirection
+  senderType        MessageSenderType
+  senderUserId      String?                @db.Uuid
+  body              String                 @db.VarChar(4000)
+  // ---- WhatsApp (nulos em mensagens internas)
+  // wamid da Meta. Único por empresa: impede duplicar mensagens em reenvios de webhook.
+  externalId        String?                @db.VarChar(128)
+  // Tipo original na Meta (text, image, audio...). Só "text" tem conteúdo suportado nesta fase.
+  externalType      String?                @db.VarChar(32)
+  // Só para mensagens enviadas pelo WhatsApp. Avança de forma monotônica (ver código).
+  deliveryStatus    MessageDeliveryStatus?
+  sendAttempts      Int                    @default(0)
+  nextSendAttemptAt DateTime?              @db.Timestamptz(3)
+  sentAt            DateTime?              @db.Timestamptz(3)
+  deliveredAt       DateTime?              @db.Timestamptz(3)
+  readAt            DateTime?              @db.Timestamptz(3)
+  failedAt          DateTime?              @db.Timestamptz(3)
+  errorCode         String?                @db.VarChar(32)
+  errorMessage      String?                @db.VarChar(500)
+  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
 
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // FK composta: a mensagem pertence à MESMA empresa da conversa.
   conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
   sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
 
+  @@unique([companyId, externalId])
   @@index([conversationId, createdAt])
+  @@index([deliveryStatus, nextSendAttemptAt])
+}
+
+// ---------------------------------------------------------------- FASE 3
+
+enum ConversationChannel {
+  INTERNAL
+  WHATSAPP
+}
+
+/// PENDING → SENT → DELIVERED → READ; FAILED quando a Meta recusa ou não entrega.
+enum MessageDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+/// PENDING: configurado, ainda não testado. ACTIVE: teste ok. ERROR: a Meta recusou. DISABLED: desligado pelo SUPERADMIN.
+enum WhatsAppAccountStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  DISABLED
+}
+
+enum WebhookEventStatus {
+  PENDING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+/// Um número de WhatsApp Business por empresa nesta fase.
+model WhatsAppAccount {
+  id                    String                @id @default(uuid(7)) @db.Uuid
+  companyId             String                @unique @db.Uuid
+  wabaId                String                @db.VarChar(32)
+  // Roteamento dos webhooks: único na plataforma inteira.
+  phoneNumberId         String                @unique @db.VarChar(32)
+  displayPhoneNumber    String                @db.VarChar(32)
+  verifiedName          String?               @db.VarChar(120)
+  status                WhatsAppAccountStatus @default(PENDING)
+  // Token cifrado (AES-256-GCM, companyId como dado autenticado). Nunca sai da API.
+  accessTokenCiphertext String                @db.Text
+  tokenUpdatedAt        DateTime              @db.Timestamptz(3)
+  lastCheckedAt         DateTime?             @db.Timestamptz(3)
+  // Último erro, já sanitizado (sem tokens).
+  lastErrorCode         String?               @db.VarChar(32)
+  lastErrorMessage      String?               @db.VarChar(500)
+  lastErrorAt           DateTime?             @db.Timestamptz(3)
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @db.Timestamptz(3)
+
+  // Restrict: desconectar é desativar; apagar empresa com número exige decisão explícita.
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+/// Fila persistente de webhooks: gravado na requisição, processado em segundo plano.
+model WhatsAppWebhookEvent {
+  id            String             @id @default(uuid(7)) @db.Uuid
+  // SHA-256 do corpo bruto: reenvios idênticos da Meta são descartados na entrada.
+  payloadSha256 String             @unique @db.Char(64)
+  payload       Json
+  // Preenchido no processamento (um payload pode, em tese, ter vários números).
+  companyId     String?            @db.Uuid
+  status        WebhookEventStatus @default(PENDING)
+  attempts      Int                @default(0)
+  nextAttemptAt DateTime           @default(now()) @db.Timestamptz(3)
+  lockedUntil   DateTime?          @db.Timestamptz(3)
+  lastError     String?            @db.VarChar(500)
+  receivedAt    DateTime           @default(now()) @db.Timestamptz(3)
+  processedAt   DateTime?          @db.Timestamptz(3)
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([companyId])
 }

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseCookieSecure } from "@arthur-ai/shared";
 import { z } from "zod";
+import { buildWhatsAppConfig, whatsappEnvSchema, type WhatsAppConfig } from "./whatsapp-config.js";
 
 const trustProxySchema = z
   .string()
@@ -24,9 +25,12 @@ const envSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24 * 90).default(168),
   TRUST_PROXY: trustProxySchema,
   SESSION_COOKIE_SECURE: z.enum(["true", "false"]).optional(),
-});
+}).extend(whatsappEnvSchema.shape);
 
-export type Env = z.output<typeof envSchema> & { cookieSecure: boolean };
+type ParsedEnv = z.output<typeof envSchema>;
+// Segredos do WhatsApp ficam só em `whatsapp`; os campos crus não são expostos no Env.
+type RawWhatsAppKeys = "WHATSAPP_APP_SECRET" | "WHATSAPP_WEBHOOK_VERIFY_TOKEN" | "WHATSAPP_TOKEN_ENCRYPTION_KEY";
+export type Env = Omit<ParsedEnv, RawWhatsAppKeys> & { cookieSecure: boolean; whatsapp: WhatsAppConfig };
 export const ENV = Symbol("ENV");
 
 let rootEnvLoaded = false;
@@ -47,5 +51,13 @@ export function loadEnv(): Env {
   if (result.data.NODE_ENV === "production" && !cookieSecure) {
     throw new Error("Variáveis de ambiente inválidas:\n  - SESSION_COOKIE_SECURE: deve ser true em produção.");
   }
-  return { ...result.data, cookieSecure };
+  const { WHATSAPP_APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_TOKEN_ENCRYPTION_KEY, ...rest } = result.data;
+  const { config: whatsapp, errors } = buildWhatsAppConfig(
+    { ...result.data, WHATSAPP_APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_TOKEN_ENCRYPTION_KEY },
+    result.data.NODE_ENV,
+  );
+  if (errors.length > 0) {
+    throw new Error(`Variáveis de ambiente inválidas:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
+  }
+  return { ...rest, cookieSecure, whatsapp };
 }

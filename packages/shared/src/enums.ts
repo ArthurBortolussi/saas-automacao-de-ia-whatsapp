@@ -34,3 +34,17 @@ export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
 
 export const MESSAGE_SENDER_TYPES = ["CONTACT", "AGENT", "AI", "SYSTEM"] as const;
 export type MessageSenderType = (typeof MESSAGE_SENDER_TYPES)[number];
+
+// ---------------------------------------------------------------- FASE 3
+
+export const CONVERSATION_CHANNELS = ["INTERNAL", "WHATSAPP"] as const;
+export type ConversationChannel = (typeof CONVERSATION_CHANNELS)[number];
+
+export const MESSAGE_DELIVERY_STATUSES = ["PENDING", "SENT", "DELIVERED", "READ", "FAILED"] as const;
+export type MessageDeliveryStatus = (typeof MESSAGE_DELIVERY_STATUSES)[number];
+
+export const WHATSAPP_ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "ERROR", "DISABLED"] as const;
+export type WhatsAppAccountStatus = (typeof WHATSAPP_ACCOUNT_STATUSES)[number];
+
+export const WEBHOOK_EVENT_STATUSES = ["PENDING", "PROCESSED", "IGNORED", "FAILED"] as const;
+export type WebhookEventStatus = (typeof WEBHOOK_EVENT_STATUSES)[number];

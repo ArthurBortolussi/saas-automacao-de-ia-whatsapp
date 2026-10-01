@@ -14,6 +14,7 @@ import {
 } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
 import {
   messagePreview,
   toConversationDetail,
@@ -49,6 +50,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly whatsapp: WhatsAppOutboundService,
   ) {}
 
   async list(company: Company, query: ListConversationsQuery): Promise<Paginated<ConversationSummary>> {
@@ -130,8 +132,20 @@ export class ConversationsService {
     return { items: rows.slice(0, query.limit).reverse().map(toMessageItem), hasMore };
   }
 
-  /** Mensagem manual (interna nesta fase: não sai por nenhum canal). */
+  /** Mensagem manual. Conversa do WhatsApp sai pela Cloud API; conversa interna fica só no sistema. */
   async send(company: Company, conversationId: string, body: string, actor: User): Promise<MessageItem> {
+    const target = await this.prisma.conversation.findUnique({
+      where: { id_companyId: { id: conversationId, companyId: company.id } },
+      select: { channel: true },
+    });
+    if (!target) throw new NotFoundException(CONVERSATION_NOT_FOUND);
+    if (target.channel === "WHATSAPP") {
+      return this.whatsapp.send(company, conversationId, body, { type: "AGENT", userId: actor.id });
+    }
+    return this.sendInternal(company, conversationId, body, actor);
+  }
+
+  private async sendInternal(company: Company, conversationId: string, body: string, actor: User): Promise<MessageItem> {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
       // Condicional e atômico: se o modo mudou entre a tela e o envio, nada é gravado.

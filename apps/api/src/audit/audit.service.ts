@@ -12,13 +12,18 @@ export const AUDIT_ACTIONS = {
   CONTACT_UPDATED: "contact.updated",
   CONVERSATION_CREATED: "conversation.created",
   CONVERSATION_MODE_CHANGED: "conversation.mode_changed",
+  WHATSAPP_ACCOUNT_CREATED: "whatsapp.account_created",
+  WHATSAPP_ACCOUNT_UPDATED: "whatsapp.account_updated",
+  WHATSAPP_ACCOUNT_TESTED: "whatsapp.account_tested",
+  WHATSAPP_ACCOUNT_DISABLED: "whatsapp.account_disabled",
+  WHATSAPP_ACCOUNT_ENABLED: "whatsapp.account_enabled",
 } as const;
 type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   action: AuditAction;
   actorUserId: string | null;
-  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation";
+  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount";
   entityId: string | null;
   companyId?: string | null;
   // Nunca inclua senhas, hashes ou tokens aqui.

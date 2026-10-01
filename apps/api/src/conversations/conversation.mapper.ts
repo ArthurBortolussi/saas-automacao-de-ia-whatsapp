@@ -1,5 +1,5 @@
 import type { Contact, Conversation, Message } from "@arthur-ai/database";
-import { aiMayReply, humanMayReply, type ConversationDetail, type ConversationSummary, type MessageItem } from "@arthur-ai/shared";
+import { aiMayReply, humanMayReply, isServiceWindowOpen, type ConversationDetail, type ConversationSummary, type MessageItem } from "@arthur-ai/shared";
 import { toContactDetail } from "../contacts/contact.mapper.js";
 
 type UserRefRow = { id: string; name: string } | null;
@@ -11,6 +11,7 @@ export function toConversationSummary(
 ): ConversationSummary {
   return {
     id: conversation.id,
+    channel: conversation.channel,
     mode: conversation.mode,
     unreadCount: conversation.unreadCount,
     lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
@@ -29,6 +30,8 @@ export function toConversationDetail(
     contact: toContactDetail(conversation.contact),
     aiMayReply: aiMayReply(conversation.mode),
     humanMayReply: humanMayReply(conversation.mode),
+    lastInboundAt: conversation.lastInboundAt?.toISOString() ?? null,
+    serviceWindowOpen: conversation.channel === "WHATSAPP" && isServiceWindowOpen(conversation.lastInboundAt),
   };
 }
 
@@ -40,6 +43,9 @@ export function toMessageItem(message: Message & { sender: UserRefRow }): Messag
     sender: message.sender,
     body: message.body,
     createdAt: message.createdAt.toISOString(),
+    externalType: message.externalType,
+    deliveryStatus: message.deliveryStatus,
+    errorMessage: message.errorMessage,
   };
 }
 

@@ -2,8 +2,11 @@ import type {
   CompanyStatus,
   ContactSource,
   ContactStatus,
+  ConversationChannel,
   ConversationMode,
   GlobalRole,
+  MessageDeliveryStatus,
+  WhatsAppAccountStatus,
   MemberRole,
   MessageDirection,
   MessageSenderType,
@@ -134,6 +137,7 @@ export interface UserRef {
 
 export interface ConversationSummary {
   id: string;
+  channel: ConversationChannel;
   mode: ConversationMode;
   unreadCount: number;
   lastMessageAt: string | null;
@@ -147,6 +151,9 @@ export interface ConversationDetail extends Omit<ConversationSummary, "contact">
   contact: ContactDetail;
   aiMayReply: boolean;
   humanMayReply: boolean;
+  /** WhatsApp: última mensagem do cliente e se a janela de 24h está aberta. */
+  lastInboundAt: string | null;
+  serviceWindowOpen: boolean;
 }
 
 export interface MessageItem {
@@ -156,10 +163,59 @@ export interface MessageItem {
   sender: UserRef | null;
   body: string;
   createdAt: string;
+  /** Tipo original no WhatsApp (text, image...); null em mensagens internas. */
+  externalType: string | null;
+  /** Só em mensagens enviadas pelo WhatsApp. */
+  deliveryStatus: MessageDeliveryStatus | null;
+  /** Motivo legível de falha, sem dados sensíveis. */
+  errorMessage: string | null;
 }
 
 export interface MessagePage {
   items: MessageItem[];
   // true quando existem mensagens mais antigas que a primeira de items.
   hasMore: boolean;
+}
+
+// ---------------------------------------------------------------- FASE 3
+
+/** Visão do SUPERADMIN. O token NUNCA é devolvido: só se existe e quando foi trocado. */
+export interface WhatsAppAccountAdminView {
+  id: string;
+  wabaId: string;
+  phoneNumberId: string;
+  displayPhoneNumber: string;
+  verifiedName: string | null;
+  status: WhatsAppAccountStatus;
+  hasAccessToken: boolean;
+  tokenUpdatedAt: string;
+  lastCheckedAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  lastErrorAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Estado global da integração neste servidor (sem segredos). */
+export interface WhatsAppPlatformInfo {
+  enabled: boolean;
+  /** true quando a Graph API configurada não é a oficial (servidor simulado local). */
+  simulated: boolean;
+  graphApiVersion: string;
+  webhookPath: string;
+  missing: string[];
+}
+
+export interface WhatsAppAdminResponse {
+  platform: WhatsAppPlatformInfo;
+  account: WhatsAppAccountAdminView | null;
+}
+
+/** O que a empresa cliente pode ver da própria conexão. */
+export interface WhatsAppCompanyStatus {
+  connected: boolean;
+  status: WhatsAppAccountStatus | null;
+  displayPhoneNumber: string | null;
+  verifiedName: string | null;
 }

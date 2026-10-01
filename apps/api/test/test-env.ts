@@ -13,5 +13,7 @@ export function useTestDatabaseEnv(): string {
   }
   process.env["DATABASE_URL"] = testUrl;
   process.env["NODE_ENV"] = "test";
+  // Sem timer do worker do WhatsApp nos testes: quem precisa processa a fila com worker.drain().
+  process.env["WHATSAPP_WORKER_INTERVAL_MS"] = "0";
   return testUrl;
 }

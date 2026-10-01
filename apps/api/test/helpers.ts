@@ -28,7 +28,7 @@ export async function createTestApp(rateLimit: LoginRateLimitOptions = RELAXED_R
     .overrideProvider(LOGIN_RATE_LIMIT_OPTIONS)
     .useValue(rateLimit)
     .compile();
-  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ["error"] });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ["error"], rawBody: true });
   configureApp(app, loadEnv());
   await app.init();
   return { app, prisma: app.get(PrismaService), http: request(app.getHttpServer()) };
@@ -36,7 +36,7 @@ export async function createTestApp(rateLimit: LoginRateLimitOptions = RELAXED_R
 
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "WhatsAppWebhookEvent", "WhatsAppAccount", "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
   );
 }
 

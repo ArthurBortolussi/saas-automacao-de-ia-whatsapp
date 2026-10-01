@@ -9,6 +9,7 @@ import {
   type MemberRole,
 } from "./index.js";
 import { hashPassword } from "./password.js";
+import { TokenCipher } from "./token-cipher.js";
 
 const rootEnv = resolve(import.meta.dirname, "../../../.env");
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -216,7 +217,41 @@ async function main() {
   }
 }
 
+/**
+ * Número de WhatsApp FICTÍCIO para a Empresa Demo, usado com a Graph API simulada
+ * (pnpm whatsapp:mock-graph). Só é criado se houver chave de criptografia e se a empresa
+ * ainda não tiver número: nunca sobrescreve uma configuração real.
+ */
+async function seedSimulatedWhatsApp() {
+  const key = process.env["WHATSAPP_TOKEN_ENCRYPTION_KEY"];
+  if (!key) {
+    console.log("WhatsApp: WHATSAPP_TOKEN_ENCRYPTION_KEY ausente, número simulado não criado.");
+    return;
+  }
+  const company = await prisma.company.findUnique({ where: { slug: "empresa-demo-dev" } });
+  if (!company) return;
+  if (await prisma.whatsAppAccount.findUnique({ where: { companyId: company.id } })) {
+    console.log("WhatsApp: Empresa Demo já tem número configurado (mantido).");
+    return;
+  }
+  const cipher = new TokenCipher(Buffer.from(key, "base64"));
+  await prisma.whatsAppAccount.create({
+    data: {
+      companyId: company.id,
+      wabaId: "990000000000001",
+      phoneNumberId: "990000000000101",
+      displayPhoneNumber: "+55 11 90000-0000",
+      verifiedName: "Empresa Demo (SIMULADO)",
+      accessTokenCiphertext: cipher.encrypt("token-ficticio-da-graph-api-simulada", company.id),
+      tokenUpdatedAt: new Date(),
+      status: "PENDING",
+    },
+  });
+  console.log("WhatsApp: número SIMULADO criado para a Empresa Demo (phone_number_id 990000000000101).");
+}
+
 main()
+  .then(seedSimulatedWhatsApp)
   .catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
