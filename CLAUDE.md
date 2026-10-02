@@ -123,6 +123,9 @@ tempo real (websocket) se o polling pesar; rate limit compartilhado se houver ma
 
 ## Fase 4 — planejamento (NÃO implementado)
 
+**Status:** aguardando autorização do desenvolvedor para começar. As decisões em aberto listadas no fim desta seção
+já foram tomadas e virão no prompt da Fase 4; até lá, não implementar nada desta fase.
+
 Objetivo: a IA responde automaticamente conversas em modo `AI`, usando a base de conhecimento da própria empresa,
 e passa para um humano quando não souber ou quando o cliente pedir.
 
