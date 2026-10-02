@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, type ConversationMode, type ConversationStatus, type MessageDeliveryStatus, type WhatsAppAccount } from "@arthur-ai/database";
 import { aiMayReply } from "@arthur-ai/shared";
+import { markQueued, startCycle } from "../analytics/cycle-tracker.js";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { uniqueViolationIndex } from "../common/prisma-errors.js";
 import { messagePreview } from "../conversations/conversation.mapper.js";
@@ -210,7 +211,12 @@ export class WebhookProcessorService {
         data: { companyId, contactId, channel: "WHATSAPP", mode, cycleStartedAt: now, lastActivityAt: now, ...(human ? queuedData(now) : {}) },
         select: { id: true },
       });
-      if (human) await this.recordQueued(tx, companyId, conversation.id, "NEW_CONVERSATION");
+      // Fase 6: ciclo de atendimento na mesma transação (um reenvio do webhook desfaz tudo junto).
+      await startCycle(tx, { companyId, conversationId: conversation.id, origin: "NEW_CONVERSATION", mode, at: now });
+      if (human) {
+        await markQueued(tx, conversation.id, now);
+        await this.recordQueued(tx, companyId, conversation.id, "NEW_CONVERSATION");
+      }
       return { id: conversation.id, mode, queued: human };
     }
 
@@ -239,12 +245,18 @@ export class WebhookProcessorService {
         { action: AUDIT_ACTIONS.CONVERSATION_REOPENED, actorUserId: null, entityType: "Conversation", entityId: existing.id, companyId, metadata: { mode } },
         tx,
       );
-      if (human) await this.recordQueued(tx, companyId, existing.id, "REOPENED");
+      // Novo ciclo na mesma conversa: o ciclo anterior continua encerrado (e contado) no período em que encerrou.
+      await startCycle(tx, { companyId, conversationId: existing.id, origin: "REOPENED", mode, at: now });
+      if (human) {
+        await markQueued(tx, existing.id, now);
+        await this.recordQueued(tx, companyId, existing.id, "REOPENED");
+      }
       return { id: existing.id, mode, queued: human };
     }
 
     if (current.mode === "HUMAN" && current.status === "OPEN") {
       await tx.conversation.update({ where: { id: existing.id }, data: queuedData(now) });
+      await markQueued(tx, existing.id, now);
       await this.recordQueued(tx, companyId, existing.id, "CUSTOMER_MESSAGE");
       return { id: existing.id, mode: current.mode, queued: true };
     }

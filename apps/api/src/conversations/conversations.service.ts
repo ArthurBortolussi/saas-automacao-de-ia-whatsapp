@@ -13,6 +13,7 @@ import {
   type MessagePage,
   type Paginated,
 } from "@arthur-ai/shared";
+import { markAssigned, markHumanReply, markLeftQueue, startCycle } from "../analytics/cycle-tracker.js";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { endOpenAssignment, releasedData } from "../team/conversation-state.js";
@@ -166,7 +167,9 @@ export class ConversationsService {
           lastActivityAt: now,
         },
       });
+      await startCycle(tx, { companyId: company.id, conversationId: created.id, origin: "NEW_CONVERSATION", mode: "HUMAN", at: now });
       if (owner) {
+        await markAssigned(tx, created.id, now);
         await tx.conversationAssignment.create({
           data: { companyId: company.id, conversationId: created.id, userId: owner, startReason: "CREATED", actorUserId: actor.id, assignedAt: now },
         });
@@ -247,6 +250,7 @@ export class ConversationsService {
         }
         throw new ConflictException(CONCURRENT_CHANGE);
       }
+      await markHumanReply(tx, conversationId, now);
       const message = await tx.message.create({
         data: {
           companyId: company.id,
@@ -402,6 +406,7 @@ export class ConversationsService {
   ): Promise<void> {
     const now = new Date();
     if (action === "ASSUME" && current.assignedUserId !== actor.id) {
+      await markAssigned(tx, current.id, now);
       if (current.assignedUserId) await endOpenAssignment(tx, current.id, "TRANSFERRED", now);
       await tx.conversationAssignment.create({
         data: { companyId, conversationId: current.id, userId: actor.id, startReason: "ASSUME", actorUserId: actor.id, assignedAt: now },
@@ -409,6 +414,7 @@ export class ConversationsService {
       return;
     }
     if (data.status === "OPEN") {
+      await markLeftQueue(tx, current.id);
       if (current.assignedUserId) await endOpenAssignment(tx, current.id, "RETURNED_TO_AI", now);
       if (current.status === "QUEUED") {
         await this.audit.record(

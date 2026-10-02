@@ -19,6 +19,7 @@ import type {
 import { isServiceWindowOpen, QUEUE_WAITING_MESSAGE, type EligibleAssignee } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { closeCycle, markAssigned, markQueued } from "../analytics/cycle-tracker.js";
 import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
 import { endOpenAssignment, queuedData, releasedData } from "./conversation-state.js";
 import { lockCompanyTeam } from "./team-lock.js";
@@ -130,6 +131,8 @@ export class DistributionService {
       },
     });
     if (count === 0) throw new ConflictException("A conversa foi alterada por outra pessoa. Atualize a página e tente novamente.");
+    // Fase 6: transferência entre funcionários não abre espera nem conta outro atendimento.
+    await markAssigned(tx, params.conversationId, now);
     await tx.companyMember.update({
       where: { companyId_userId: { companyId: params.companyId, userId: params.userId } },
       data: { lastAssignedAt: now },
@@ -261,6 +264,7 @@ export class DistributionService {
       data: { ...releasedData, status: "CLOSED", closedAt: now, closeReason: reason, closedByUserId: actorUserId },
     });
     if (count === 0) return false;
+    await closeCycle(tx, conversationId, now, reason);
     if (previousUserId) await endOpenAssignment(tx, conversationId, "CLOSED", now);
     // Nada da IA fica pendente numa conversa encerrada.
     await tx.aiReplyTask.updateMany({
@@ -391,10 +395,11 @@ export class DistributionService {
     const now = new Date();
     for (const conversation of conversations) {
       await endOpenAssignment(tx, conversation.id, "REQUEUED", now);
-      await tx.conversation.updateMany({
+      const { count } = await tx.conversation.updateMany({
         where: { id: conversation.id, companyId, status: "ASSIGNED" },
         data: { ...queuedData(now), queueNoticeError: "REQUEUED" },
       });
+      if (count > 0) await markQueued(tx, conversation.id, now);
       await this.audit.record(
         {
           action: AUDIT_ACTIONS.CONVERSATION_QUEUED,

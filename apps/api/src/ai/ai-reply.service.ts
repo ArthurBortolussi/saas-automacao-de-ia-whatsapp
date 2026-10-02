@@ -3,6 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { AiHandoffReason, AiTaskStatus, Company, Prisma } from "@arthur-ai/database";
 import { aiMayReply, DEFAULT_HANDOFF_MESSAGE, isServiceWindowOpen, isWithinAiSchedule, MESSAGE_MAX_LENGTH } from "@arthur-ai/shared";
+import { markAiHandoff, markQueued, openCycleId } from "../analytics/cycle-tracker.js";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { ENV, type Env } from "../config/env.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -200,6 +201,7 @@ export class AiReplyService {
     await this.prisma.aiRun.create({
       data: {
         id,
+        ...(await this.runOrigin(context)),
         companyId: context.companyId,
         conversationId: context.conversationId,
         model: message.model.slice(0, 80),
@@ -215,6 +217,14 @@ export class AiReplyService {
     return id;
   }
 
+  /** Fase 6: API chamada (gravada agora, nunca deduzida depois) e ciclo de atendimento da execução. */
+  private async runOrigin(context: RunContext): Promise<{ apiSource: "OFFICIAL" | "SIMULATED"; cycleId: string | null }> {
+    return {
+      apiSource: this.env.ai.simulated ? "SIMULATED" : "OFFICIAL",
+      cycleId: await openCycleId(this.prisma, context.conversationId),
+    };
+  }
+
   private async onModelError(
     context: RunContext,
     company: Company,
@@ -225,6 +235,7 @@ export class AiReplyService {
     await this.prisma.aiRun.create({
       data: {
         id: randomUUID(),
+        ...(await this.runOrigin(context)),
         companyId: context.companyId,
         conversationId: context.conversationId,
         model: this.env.ai.model,
@@ -297,12 +308,15 @@ export class AiReplyService {
   }
 
   private async switchToHuman(tx: Prisma.TransactionClient, context: RunContext, reason: AiHandoffReason): Promise<void> {
+    const now = new Date();
     const { count } = await tx.conversation.updateMany({
       where: { id: context.conversationId, companyId: context.companyId, mode: "AI", status: "OPEN" },
       // Fase 5: além de mudar para HUMAN, entra na fila para a distribuição automática.
-      data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: reason, aiHandoffAt: new Date(), ...queuedData(new Date()) },
+      data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: reason, aiHandoffAt: now, ...queuedData(now) },
     });
     if (count === 0) return;
+    await markAiHandoff(tx, context.conversationId, now);
+    await markQueued(tx, context.conversationId, now);
     await this.audit.record(
       {
         action: AUDIT_ACTIONS.CONVERSATION_QUEUED,

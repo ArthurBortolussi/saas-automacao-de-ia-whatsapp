@@ -211,6 +211,18 @@ async function main() {
             createdAt: times[index] ?? new Date(),
           })),
         });
+        // Fase 6: ciclo de atendimento da conversa de exemplo (base do Analytics), com o que o seed sabe.
+        const agentIndex = conversationSeed.messages.findIndex(([who]) => who !== "c");
+        await tx.conversationCycle.create({
+          data: {
+            companyId: company.id,
+            conversationId: conversation.id,
+            origin: "NEW_CONVERSATION",
+            startMode: conversationSeed.mode,
+            startedAt: times[0] ?? new Date(),
+            firstHumanReplyAt: agentIndex >= 0 ? (times[agentIndex] ?? null) : null,
+          },
+        });
       });
     }
     console.log(`  ${seedContacts.length} contatos fictícios`);

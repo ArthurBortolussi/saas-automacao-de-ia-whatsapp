@@ -133,6 +133,6 @@ export class AiAdminController {
 
   @Get("usage")
   usageSummary(@CurrentCompany() company: Company, @Query({ schema: aiUsageQuerySchema }) query: AiUsageQuery): Promise<AiUsageSummary> {
-    return this.usage.summary(company, query.days);
+    return this.usage.summary(company, query.period);
   }
 }

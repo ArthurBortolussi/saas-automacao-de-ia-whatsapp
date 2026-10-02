@@ -82,6 +82,8 @@ model Company {
   state         String?       @db.Char(2)
   businessHours String?       @db.VarChar(200)
   status        CompanyStatus @default(ONBOARDING)
+  // FASE 6: fuso dos relatórios (início/fim de cada dia). Não é o horário da IA (AiSettings.timezone).
+  timezone      String        @default("America/Sao_Paulo") @db.VarChar(64)
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
 
@@ -98,6 +100,7 @@ model Company {
   assignments     ConversationAssignment[]
   teamSettings    TeamSettings?
   aiRuns          AiRun[]
+  cycles          ConversationCycle[]
 
   @@index([status])
 }
@@ -263,6 +266,7 @@ model Conversation {
   aiReplyTasks   AiReplyTask[]
   aiRuns         AiRun[]
   assignments    ConversationAssignment[]
+  cycles         ConversationCycle[]
 
   @@unique([id, companyId])
   @@index([companyId, lastMessageAt])
@@ -309,6 +313,8 @@ model Message {
   // Alvo da FK composta de AiReplyTask (Fase 4).
   @@unique([id, companyId])
   @@index([conversationId, createdAt])
+  // Fase 6: contagens por período (empresa e plataforma).
+  @@index([companyId, createdAt])
   @@index([deliveryStatus, nextSendAttemptAt])
 }
 
@@ -514,13 +520,21 @@ model AiRun {
   latencyMs                Int?
   // Quantas mensagens do cliente foram agrupadas nesta resposta.
   messageCount             Int
+  // FASE 6: API chamada (oficial ou simulador), gravada no momento da execução. Nulo = registro anterior à
+  // Fase 6: origem não verificada (nunca é deduzida depois).
+  apiSource                AiApiSource?
+  // FASE 6: ciclo de atendimento da conversa no momento da execução (custo por atendimento).
+  cycleId                  String?          @db.Uuid
   createdAt                DateTime         @default(now()) @db.Timestamptz(3)
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversation Conversation       @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  cycle        ConversationCycle? @relation(fields: [cycleId, companyId], references: [id, companyId], onDelete: Restrict, map: "AiRun_cycle_fkey")
 
   @@index([companyId, createdAt])
   @@index([conversationId])
+  @@index([createdAt])
+  @@index([cycleId])
 }
 
 // ---------------------------------------------------------------- FASE 5
@@ -593,4 +607,62 @@ model TeamSettings {
   updatedAt                DateTime @updatedAt @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+// ---------------------------------------------------------------- FASE 6
+
+/// Para onde a execução da IA foi enviada. OFFICIAL: api.anthropic.com. SIMULATED: qualquer outro endereço (simulador).
+enum AiApiSource {
+  OFFICIAL
+  SIMULATED
+}
+
+/// Como o ciclo de atendimento começou. BACKFILL: reconstruído na migração da Fase 6 a partir dos dados existentes
+/// (só fatos verificáveis; tempos de resposta e de fila desses ciclos não são calculados).
+enum CycleOrigin {
+  NEW_CONVERSATION
+  REOPENED
+  BACKFILL
+}
+
+/// Um ciclo de atendimento (base do Analytics): da criação ou reabertura da conversa até o encerramento.
+/// A mesma conversa pode ter vários ciclos; no máximo um aberto (índice parcial escrito à mão na migração).
+/// Os marcos são gravados nas MESMAS transações dos fluxos das Fases 3 a 5 e só avançam (COALESCE/soma).
+model ConversationCycle {
+  id                String                   @id @default(uuid(7)) @db.Uuid
+  companyId         String                   @db.Uuid
+  conversationId    String                   @db.Uuid
+  origin            CycleOrigin
+  // Modo no início do ciclo; nulo nos ciclos reconstruídos (o modo inicial não foi registrado).
+  startMode         ConversationMode?
+  startedAt         DateTime                 @db.Timestamptz(3)
+  // Primeira ação da IA no ciclo (resposta enviada ou transferência para humano).
+  aiFirstAt         DateTime?                @db.Timestamptz(3)
+  // Transferências feitas pela IA para atendimento humano neste ciclo.
+  aiHandoffCount    Int                      @default(0)
+  // Primeiro pedido de atendimento humano: entrada na fila ou atribuição direta (o que vier antes).
+  humanRequestedAt  DateTime?                @db.Timestamptz(3)
+  firstQueuedAt     DateTime?                @db.Timestamptz(3)
+  // Espera em andamento (entrada na fila ainda sem atribuição).
+  queueEnteredAt    DateTime?                @db.Timestamptz(3)
+  // Soma das esperas concluídas por atribuição e quantas foram.
+  queueWaitMs       BigInt                   @default(0)
+  queueWaitCount    Int                      @default(0)
+  firstAssignedAt   DateTime?                @db.Timestamptz(3)
+  // Primeira mensagem de um funcionário no ciclo (IA, avisos e mensagens do sistema não contam).
+  firstHumanReplyAt DateTime?                @db.Timestamptz(3)
+  closedAt          DateTime?                @db.Timestamptz(3)
+  closeReason       ConversationCloseReason?
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  aiRuns       AiRun[]
+
+  @@unique([id, companyId])
+  @@index([companyId, startedAt])
+  @@index([companyId, closedAt])
+  @@index([conversationId, startedAt])
+  @@index([startedAt])
+  @@index([closedAt])
 }

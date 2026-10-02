@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidCnpj, normalizeCnpj } from "./cnpj.js";
+import { ANALYTICS_PERIODS, DEFAULT_ANALYTICS_PERIOD } from "./analytics.js";
 import { AI_TIME_PATTERN, isValidTimeZone, KNOWLEDGE_CONTENT_MAX, KNOWLEDGE_TITLE_MAX } from "./ai-rules.js";
 import { CONVERSATION_ACTIONS } from "./conversation-rules.js";
 import { AGENT_AVAILABILITIES, AI_TONES, BRAZILIAN_STATES, type ConversationMode, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
@@ -373,8 +374,9 @@ export const updateAdminAiSettingsSchema = strictObject({
 export type UpdateAdminAiSettingsInput = z.input<typeof updateAdminAiSettingsSchema>;
 export type UpdateAiSettingsData = z.output<typeof updateAdminAiSettingsSchema>;
 
+// Fase 6: mesmo período de calendário do Analytics (fuso da plataforma), para os números baterem com o relatório.
 export const aiUsageQuerySchema = strictObject({
-  days: z.coerce.number().int().min(1).max(366).default(30),
+  period: z.enum(ANALYTICS_PERIODS, { error: "Período inválido." }).default(DEFAULT_ANALYTICS_PERIOD),
 });
 export type AiUsageQuery = z.output<typeof aiUsageQuerySchema>;
 

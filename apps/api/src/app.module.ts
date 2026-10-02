@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD, APP_PIPE } from "@nestjs/core";
 import { AdminModule } from "./admin/admin.module.js";
 import { AiModule } from "./ai/ai.module.js";
+import { AnalyticsModule } from "./analytics/analytics.module.js";
 import { AuditModule } from "./audit/audit.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { AllExceptionsFilter } from "./common/filters/http-exception.filter.js";
@@ -30,6 +31,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module.js";
     WhatsAppModule,
     AiModule,
     TeamModule,
+    AnalyticsModule,
   ],
   providers: [
     // Guards globais, nesta ordem: Origin (CSRF) → sessão (401) → troca de senha obrigatória (403).

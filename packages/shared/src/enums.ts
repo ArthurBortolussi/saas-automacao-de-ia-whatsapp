@@ -89,3 +89,13 @@ export type AssignmentStartReason = (typeof ASSIGNMENT_START_REASONS)[number];
 
 export const ASSIGNMENT_END_REASONS = ["TRANSFERRED", "CLOSED", "RETURNED_TO_AI", "REQUEUED"] as const;
 export type AssignmentEndReason = (typeof ASSIGNMENT_END_REASONS)[number];
+
+// ---------------------------------------------------------------- FASE 6
+
+/** Para onde a execução da IA foi enviada (gravado na execução; nulo = registro antigo, origem não verificada). */
+export const AI_API_SOURCES = ["OFFICIAL", "SIMULATED"] as const;
+export type AiApiSource = (typeof AI_API_SOURCES)[number];
+
+/** Como um ciclo de atendimento começou (BACKFILL = reconstruído a partir de dados anteriores à Fase 6). */
+export const CYCLE_ORIGINS = ["NEW_CONVERSATION", "REOPENED", "BACKFILL"] as const;
+export type CycleOrigin = (typeof CYCLE_ORIGINS)[number];

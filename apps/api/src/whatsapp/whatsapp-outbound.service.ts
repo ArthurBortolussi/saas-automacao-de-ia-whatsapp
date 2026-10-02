@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { Prisma, type Company, type ConversationMode } from "@arthur-ai/database";
 import { aiMayReply, humanMayReply, isServiceWindowOpen, type MessageItem } from "@arthur-ai/shared";
+import { markAiActivity, markHumanReply } from "../analytics/cycle-tracker.js";
 import { messagePreview, toMessageItem, userRefSelect } from "../conversations/conversation.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CloudApiClient } from "./cloud-api.client.js";
@@ -77,6 +78,9 @@ export class WhatsAppOutboundService {
       });
       if (count === 0) throw new ConflictException("A conversa foi alterada por outra pessoa. Atualize a página e tente novamente.");
       if (sender.type !== "AGENT" && sender.inTransaction) await sender.inTransaction(tx);
+      // Fase 6: marcos do ciclo. Avisos do sistema (SYSTEM) não contam como resposta de ninguém.
+      if (sender.type === "AGENT") await markHumanReply(tx, conversationId, now);
+      else if (sender.type === "AI") await markAiActivity(tx, conversationId, now);
 
       const message = await tx.message.create({
         data: {

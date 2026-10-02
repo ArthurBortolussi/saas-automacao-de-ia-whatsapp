@@ -1,9 +1,18 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type AiRun, type Company } from "@arthur-ai/database";
-import { AI_RUN_RESULTS, type AiRunItem, type AiRunResult, type AiUsageSummary } from "@arthur-ai/shared";
+import {
+  AI_RUN_RESULTS,
+  PLATFORM_TIMEZONE,
+  usageSourceOf,
+  type AiRunItem,
+  type AiRunResult,
+  type AiUsageSummary,
+  type AnalyticsPeriod,
+} from "@arthur-ai/shared";
+import { AnalyticsQueriesService } from "../analytics/analytics-queries.service.js";
+import { periodInfo, resolveWindow } from "../analytics/period.js";
 import { ENV, type Env } from "../config/env.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { AiSettingsService } from "./ai-settings.service.js";
 import { priceFor } from "./pricing.js";
 
 const RECENT_RUNS = 20;
@@ -25,27 +34,30 @@ function toRunItem(run: AiRun): AiRunItem {
     costUsd: run.costUsd?.toFixed(6) ?? null,
     latencyMs: run.latencyMs,
     messageCount: run.messageCount,
+    apiSource: usageSourceOf(run.apiSource),
   };
 }
 
 const decimal = (value: Prisma.Decimal | null | undefined) => (value ?? new Prisma.Decimal(0)).toFixed(6);
 
-/** Consumo da IA de UMA empresa, sempre filtrado pelo companyId validado pelo guard. */
+/**
+ * Consumo da IA de UMA empresa, sempre filtrado pelo companyId validado pelo guard. Fase 6: mesmo período de
+ * calendário e mesmo fuso (plataforma) do Analytics do SUPERADMIN, e a mesma separação por origem.
+ */
 @Injectable()
 export class AiUsageService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly settings: AiSettingsService,
+    private readonly analytics: AnalyticsQueriesService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  async summary(company: Company, days: number): Promise<AiUsageSummary> {
-    const to = new Date();
-    const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+  async summary(company: Company, period: AnalyticsPeriod): Promise<AiUsageSummary> {
+    const window = await resolveWindow(this.prisma, period, PLATFORM_TIMEZONE, new Date());
+    const { from, to, timezone } = window;
     const where: Prisma.AiRunWhereInput = { companyId: company.id, createdAt: { gte: from, lte: to } };
-    const { timezone } = await this.settings.resolve(company.id);
 
-    const [totals, byResult, byModel, withoutUsage, withoutPrice, recent, daily] = await Promise.all([
+    const [totals, byResult, byModel, withoutUsage, withoutPrice, recent, daily, bySource] = await Promise.all([
       this.prisma.aiRun.aggregate({
         where,
         _count: { _all: true },
@@ -56,13 +68,14 @@ export class AiUsageService {
       this.prisma.aiRun.count({ where: { ...where, inputTokens: null } }),
       this.prisma.aiRun.count({ where: { ...where, inputTokens: { not: null }, costUsd: null } }),
       this.prisma.aiRun.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: RECENT_RUNS }),
-      // Dia no fuso da empresa (o fuso vem do banco já validado; vai como parâmetro, nunca concatenado).
+      // Dia no fuso da plataforma (o mesmo do Analytics); vai como parâmetro, nunca concatenado.
       this.prisma.$queryRaw<{ day: string; runs: bigint; cost: Prisma.Decimal | null }[]>`
         SELECT to_char("createdAt" AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS "day",
                count(*) AS "runs", sum("costUsd") AS "cost"
           FROM "AiRun"
          WHERE "companyId" = ${company.id}::uuid AND "createdAt" >= ${from} AND "createdAt" <= ${to}
          GROUP BY 1 ORDER BY 1`,
+      this.analytics.aiUsage(window, company.id),
     ]);
 
     const counts = Object.fromEntries(AI_RUN_RESULTS.map((result) => [result, 0])) as Record<AiRunResult, number>;
@@ -70,9 +83,7 @@ export class AiUsageService {
     const price = priceFor(this.env.ai.model, this.env.ai.model, this.env.ai.priceOverride);
 
     return {
-      days,
-      from: from.toISOString(),
-      to: to.toISOString(),
+      period: periodInfo(window),
       runs: totals._count._all,
       byResult: counts,
       inputTokens: totals._sum.inputTokens ?? 0,
@@ -86,6 +97,7 @@ export class AiUsageService {
       daily: daily.map((row) => ({ date: row.day, runs: Number(row.runs), estimatedCostUsd: decimal(row.cost) })),
       recent: recent.map(toRunItem),
       pricing: price ? { model: this.env.ai.model, ...price } : null,
+      bySource,
     };
   }
 }

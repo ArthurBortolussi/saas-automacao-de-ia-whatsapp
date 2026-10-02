@@ -254,7 +254,7 @@ describe("IA: configurações, base de conhecimento e uso (permissões e isolame
           { id: crypto.randomUUID(), companyId: companyB.id, conversationId: conversationB.id, messageCount: 1, model: "claude-sonnet-5-5", result: "REPLIED", inputTokens: 99_999, outputTokens: 99_999, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: "9.000000" },
         ],
       });
-      const response = await as(superadmin).get(`/admin/companies/${companyA.id}/ai/usage?days=30`);
+      const response = await as(superadmin).get(`/admin/companies/${companyA.id}/ai/usage?period=last30days`);
       expect(response.status).toBe(200);
       const usage = response.body as AiUsageSummary;
       expect(usage.runs).toBe(4);

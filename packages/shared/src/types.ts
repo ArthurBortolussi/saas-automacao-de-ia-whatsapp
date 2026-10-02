@@ -1,3 +1,4 @@
+import type { AiUsageBucket, AiUsageSource, AnalyticsPeriodInfo } from "./analytics.js";
 import type {
   CompanyStatus,
   ContactSource,
@@ -316,12 +317,13 @@ export interface AiRunItem {
   costUsd: string | null;
   latencyMs: number | null;
   messageCount: number;
+  /** Fase 6: API chamada (oficial, simulador) ou origem não verificada (registro antigo). */
+  apiSource: AiUsageSource;
 }
 
 export interface AiUsageSummary {
-  days: number;
-  from: string;
-  to: string;
+  /** Fase 6: mesmo período de calendário do Analytics (fuso da plataforma). */
+  period: AnalyticsPeriodInfo;
   runs: number;
   byResult: Record<AiRunResult, number>;
   inputTokens: number;
@@ -337,6 +339,8 @@ export interface AiUsageSummary {
   byModel: { model: string; runs: number; estimatedCostUsd: string }[];
   daily: { date: string; runs: number; estimatedCostUsd: string }[];
   recent: AiRunItem[];
+  /** Fase 6: separação por origem; custos simulados ou não verificados nunca são custo real. */
+  bySource: AiUsageBucket[];
   pricing: { model: string; inputPerMTok: number; outputPerMTok: number; cacheWritePerMTok: number; cacheReadPerMTok: number } | null;
 }
 

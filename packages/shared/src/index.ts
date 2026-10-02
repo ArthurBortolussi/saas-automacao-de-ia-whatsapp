@@ -1,3 +1,4 @@
+export * from "./analytics.js";
 export * from "./cnpj.js";
 export * from "./ai-rules.js";
 export * from "./conversation-rules.js";

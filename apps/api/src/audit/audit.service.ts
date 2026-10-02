@@ -36,13 +36,15 @@ export const AUDIT_ACTIONS = {
   CONVERSATION_TRANSFERRED: "conversation.transferred",
   CONVERSATION_CLOSED: "conversation.closed",
   CONVERSATION_REOPENED: "conversation.reopened",
+  // Fase 6
+  ANALYTICS_EXPORTED: "analytics.exported",
 } as const;
 type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   action: AuditAction;
   actorUserId: string | null;
-  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry" | "TeamSettings";
+  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry" | "TeamSettings" | "Report";
   entityId: string | null;
   companyId?: string | null;
   // Nunca inclua senhas, hashes ou tokens aqui.
