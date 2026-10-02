@@ -21,6 +21,8 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   exact?: boolean;
+  /** Fase 6: só OWNER/ADMIN (a API também recusa; aqui só some do menu). */
+  managersOnly?: boolean;
 }
 
 const NAV: Record<"admin" | "company", NavItem[]> = {
@@ -28,24 +30,25 @@ const NAV: Record<"admin" | "company", NavItem[]> = {
     { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
     { href: "/admin/companies", label: "Empresas", icon: Building2 },
     { href: "/admin/users", label: "Usuários", icon: Users },
+    { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/admin/settings", label: "Configurações", icon: Settings },
   ],
   company: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
     { href: "/dashboard/inbox", label: "Inbox", icon: Inbox },
     { href: "/dashboard/contacts", label: "Contatos", icon: Contact },
-    { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+    { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, managersOnly: true },
     { href: "/dashboard/knowledge-base", label: "Base de conhecimento", icon: BookOpen },
     { href: "/dashboard/team", label: "Equipe", icon: UsersRound },
     { href: "/dashboard/settings", label: "Configurações", icon: Settings },
   ],
 };
 
-export function SidebarNav({ variant }: { variant: keyof typeof NAV }) {
+export function SidebarNav({ variant, isManager = true }: { variant: keyof typeof NAV; isManager?: boolean }) {
   const pathname = usePathname();
   return (
     <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
-      {NAV[variant].map((item) => {
+      {NAV[variant].filter((item) => isManager || !item.managersOnly).map((item) => {
         const active = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (

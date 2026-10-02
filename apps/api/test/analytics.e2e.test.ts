@@ -666,6 +666,10 @@ describe("Fase 6: Analytics e relatórios", () => {
       const pdf = binary(response);
       expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
       expect(pdf.subarray(-6).toString("latin1")).toContain("%%EOF");
+      // Sem páginas em branco geradas pelo rodapé: cada página tem conteúdo (o relatório vazio cabe em até 2).
+      const pages = Number(/\/Type \/Pages[\s\S]*?\/Count (\d+)/.exec(pdf.toString("latin1"))?.[1]);
+      expect(pages).toBeGreaterThanOrEqual(1);
+      expect(pages).toBeLessThanOrEqual(2);
       expect(Number(response.headers["content-length"])).toBe(pdf.length);
       expect(await ctx.prisma.auditLog.count({ where: { action: "analytics.exported", companyId: companyA.id } })).toBe(1);
 

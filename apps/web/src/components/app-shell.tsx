@@ -29,7 +29,7 @@ export function AppShell({ variant, me, context, children }: AppShellProps) {
             <LogoutButton />
           </div>
         </div>
-        <SidebarNav variant={variant} />
+        <SidebarNav variant={variant} isManager={me.membership?.role !== "AGENT"} />
         {variant === "company" && me.membership ? (
           <div className="md:mt-auto">
             <AvailabilityControl companyId={me.membership.company.id} availability={me.membership.availability} />

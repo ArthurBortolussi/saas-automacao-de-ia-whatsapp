@@ -31,7 +31,8 @@ export interface ReportSection {
 export interface ReportTable {
   title: string;
   sheet: string;
-  columns: { header: string; kind: ValueKind | "date" }[];
+  /** `short`: cabeçalho compacto para o PDF (a planilha usa o nome completo). */
+  columns: { header: string; kind: ValueKind | "date"; short?: string }[];
   rows: (number | string | null)[][];
 }
 
@@ -152,15 +153,15 @@ function usageSection(buckets: AiUsageBucket[]): { section: ReportSection; table
       sheet: "Consumo IA",
       columns: [
         { header: "Origem", kind: "text" },
-        { header: "Execuções", kind: "count" },
-        { header: "Tokens de entrada", kind: "count" },
-        { header: "Tokens de saída", kind: "count" },
-        { header: "Tokens de cache (escrita)", kind: "count" },
-        { header: "Tokens de cache (leitura)", kind: "count" },
-        { header: "Custo estimado (USD)", kind: "usd" },
-        { header: "Execuções sem custo", kind: "count" },
-        { header: "Atendimentos com custo", kind: "count" },
-        { header: "Custo médio por atendimento (USD)", kind: "usd" },
+        { header: "Execuções", kind: "count", short: "Exec." },
+        { header: "Tokens de entrada", kind: "count", short: "Entrada" },
+        { header: "Tokens de saída", kind: "count", short: "Saída" },
+        { header: "Tokens de cache (escrita)", kind: "count", short: "Cache escr." },
+        { header: "Tokens de cache (leitura)", kind: "count", short: "Cache leit." },
+        { header: "Custo estimado (USD)", kind: "usd", short: "Custo" },
+        { header: "Execuções sem custo", kind: "count", short: "Sem custo" },
+        { header: "Atendimentos com custo", kind: "count", short: "Atend." },
+        { header: "Custo médio por atendimento (USD)", kind: "usd", short: "Média/atend." },
       ],
       rows: buckets.map((bucket) => [
         AI_USAGE_SOURCE_LABEL[bucket.source],
@@ -247,6 +248,7 @@ const COST_NOTES = [
   "Custos em dólares americanos (USD), estimados pela tabela de preços configurada no momento de cada execução. A fatura oficial é a da Anthropic.",
   "O custo estimado da IA não é o custo operacional completo da plataforma (infraestrutura, WhatsApp e equipe não estão incluídos).",
   "Execuções no simulador não são despesa real. Execuções anteriores ao Analytics não registram a origem e aparecem como \"origem não verificada\".",
+  "N/D nas tabelas = indisponível (sem base de cálculo confiável no período).",
 ];
 
 export function platformContent(report: PlatformAnalyticsReport): ReportContent {

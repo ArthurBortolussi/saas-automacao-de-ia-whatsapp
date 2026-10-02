@@ -7,8 +7,9 @@ const BRAND = "#0f766e";
 const MUTED = "#6b7280";
 const RULE = "#e5e7eb";
 
-function display(value: number | string | null, kind: ValueKind | "date"): string {
-  if (value === null) return kind === "duration" ? "Sem dados" : "Indisponível";
+function display(value: number | string | null, kind: ValueKind | "date", compact = false): string {
+  // Nas tabelas (colunas estreitas) "N/D"; nas linhas de indicadores, o texto completo.
+  if (value === null) return kind === "duration" ? "Sem dados" : compact ? "N/D" : "Indisponível";
   switch (kind) {
     case "count":
       return formatCount(Number(value));
@@ -92,12 +93,16 @@ export function renderPdf(content: ReportContent): Promise<Buffer> {
   const range = doc.bufferedPageRange();
   for (let index = range.start; index < range.start + range.count; index += 1) {
     doc.switchToPage(index);
+    // O rodapé fica dentro da margem inferior: sem zerar a margem, o pdfkit abriria uma página nova para ele.
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
     doc.font("Helvetica").fontSize(8).fillColor(MUTED);
     doc.text(`Arthur AI · ${content.subject} · página ${index + 1} de ${range.count}`, MARGIN, doc.page.height - MARGIN, {
       width,
       align: "center",
       lineBreak: false,
     });
+    doc.page.margins.bottom = bottomMargin;
   }
   doc.end();
   return done;
@@ -130,7 +135,7 @@ function drawTable(doc: PDFKit.PDFDocument, table: ReportTable, width: number, e
   };
 
   drawRow(
-    table.columns.map((column) => column.header),
+    table.columns.map((column) => column.short ?? column.header),
     true,
   );
   if (table.rows.length === 0) {
@@ -138,7 +143,7 @@ function drawTable(doc: PDFKit.PDFDocument, table: ReportTable, width: number, e
   }
   for (const row of table.rows) {
     drawRow(
-      row.map((value, index) => display(value, table.columns[index]?.kind ?? "text")),
+      row.map((value, index) => display(value, table.columns[index]?.kind ?? "text", true)),
       false,
     );
   }
