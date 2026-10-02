@@ -49,7 +49,11 @@ Configurações (IA); aviso de transferência na Inbox. Simulador local `ai:mock
 disponibilidade), distribuição automática, fila persistente com mensagem de espera, transferências, encerramento manual
 e por inatividade, reabertura no modo padrão da empresa. Detalhes na seção abaixo.
 
-**Placeholders** (telas existem, sem lógica): admin → Configurações; dashboard → Analytics.
+**Fase 6 — Analytics e relatórios.** `/dashboard/analytics` (OWNER/ADMIN, só operacional) e `/admin/analytics`
+(SUPERADMIN, com consumo e custo estimado da IA), períodos hoje/7/30 dias, exportação PDF e .xlsx, ciclos de
+atendimento (`ConversationCycle`). Detalhes na seção abaixo.
+
+**Placeholder** (tela existe, sem lógica): admin → Configurações.
 
 ## Regras de segurança e multi-tenancy (obrigatórias)
 
@@ -67,6 +71,8 @@ e por inatividade, reabertura no modo padrão da empresa. Detalhes na seção ab
   logs, auditoria ou frontend. Erros da Meta são traduzidos para mensagens próprias (texto bruto não é exibido).
   A chave da Anthropic (`ANTHROPIC_API_KEY`) só existe em `env.ai` e no `AiModelClient`; nunca em banco, respostas ou logs.
 - IA: conteúdo de clientes e da base é **dado, não instrução**; o prompt só recebe dados da empresa da conversa.
+- Analytics: relatório e exportação da empresa **nunca** têm tokens, custos ou consumo da IA (DTO próprio montado campo a
+  campo); dados financeiros só em `/admin/...` (SUPERADMIN). AGENT recebe 403 no backend.
 - Webhooks: `@Public()` + `@SkipOriginCheck()` e autenticação pela assinatura `X-Hub-Signature-256` sobre o corpo bruto.
 - `TRUST_PROXY`: o rewrite do Next **não** adiciona o IP do cliente ao `X-Forwarded-For`. Veja o README antes de publicar.
 - Produção: a API recusa subir sem `SESSION_COOKIE_SECURE=true`, com WhatsApp configurado pela metade, com a Graph
@@ -105,7 +111,7 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test     # validação complet
 No Windows (ambiente do desenvolvedor): `pnpm.cmd` no lugar de `pnpm`, no PowerShell.
 Testes: **e2e contra PostgreSQL real** (`TEST_DATABASE_URL`, o nome precisa terminar em `_test` e é truncado),
 pelo HTTP com cookie real; a Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`,
-`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 15 arquivos, 249 testes passando.
+`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 16 arquivos, 276 testes passando.
 `test/ai-simulator.e2e.test.ts` sobe o próprio `scripts/ai-mock-anthropic.mjs` com a base da Empresa Demo.
 Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` / `team.drain()` antes de limpar o banco
 (`TEAM_WORKER_INTERVAL_MS=0` nos testes). Helpers da equipe em `test/team-helpers.ts`.
@@ -135,14 +141,17 @@ mais recentes; mídia recebida só como aviso e envio só de texto; sem gerencia
 enviado fora da janela de 24h; "Nova conversa" pelo painel é interna; possível envio duplicado se a API cair entre
 o aceite da Meta e a gravação do wamid; sem edição de empresa/usuário pelo painel; IA validada só com simulador;
 base só com texto; mídia vai direto para humano; sem limite de gasto (decisão do proprietário); disponibilidade
-manual (não depende de presença); funcionário não puxa conversa da fila manualmente.
+manual (não depende de presença); funcionário não puxa conversa da fila manualmente; conversas só com a IA nunca são
+encerradas automaticamente (Analytics: "somente IA encerrados" ≈ 0 e "em andamento" acumula — decisão de produto
+pendente); fuso da empresa sem edição pelo painel; custo da IA só em USD e estimado.
 
 ## Próximos passos (fora da Fase 4, quando o cliente pedir)
 
 Validar o WhatsApp com número real e a IA com a chave real (conversas de teste, medir custo por conversa, revisar o
 prompt com respostas reais); gerenciador de modelos aprovados; mídia; edição/pausa de empresas e usuários;
 tempo real (websocket) se o polling pesar; rate limit compartilhado se houver mais de uma instância da API;
-upload de documentos e busca na base (full-text do PostgreSQL) se as bases crescerem; Analytics completo.
+upload de documentos e busca na base (full-text do PostgreSQL) se as bases crescerem; decidir o encerramento
+automático de conversas da IA; edição do fuso da empresa.
 
 ## Fase 4 — implementada (IA e base de conhecimento)
 
@@ -219,3 +228,34 @@ cliente escrever (entram na fila) ou serem atribuídas.
   `mine|queued|unassigned|closed` e `assigneeId`. `webhook-processor` trava a linha da conversa (FOR UPDATE) antes de
   decidir reabrir/enfileirar. A IA (`ai-reply.service` `switchToHuman`) coloca na fila na mesma transação.
 - `lastActivityAt` = critério de inatividade: mensagem recebida, envio (equipe/IA/sistema) e atribuição.
+
+## Fase 6 — implementada (Analytics e relatórios)
+
+**Decisões do proprietário (definitivas):** dois painéis (empresa: OWNER/ADMIN; plataforma: SUPERADMIN); AGENT sem
+acesso (403 no backend); custos/tokens só para o SUPERADMIN; períodos apenas `today`/`last7days`/`last30days`
+(calendário, incluindo hoje) com um seletor único por painel; exportação PDF e .xlsx; "somente pela IA" não é prova de
+resolução e separa encerrados × em andamento; equipe só agregada (sem ranking); tempo de primeira resposta HUMANA
+(IA não conta) e espera na fila à parte; painel simples (cards + poucos gráficos).
+
+**Modelo:** `ConversationCycle` = um atendimento (criação/reabertura → encerramento). Índice único parcial: um ciclo
+aberto por conversa; CHECKs na migration `20261004120000_analytics_cycles`. Marcos gravados por
+`apps/api/src/analytics/cycle-tracker.ts` **dentro das transações existentes** (depois da gravação condicional que trava
+a conversa): `startCycle` (webhook novo/reabertura, "Nova conversa"), `markQueued` (toda entrada na fila),
+`markLeftQueue` (saída sem atribuição), `markAssigned` (toda atribuição; conclui a espera), `markAiActivity`/`markAiHandoff`,
+`markHumanReply` (mensagem AGENT), `closeCycle`. "Primeiro X" usa `LEAST` (menor horário). **Qualquer fluxo novo que
+mude fila/atribuição/encerramento ou envie mensagem precisa chamar o marco correspondente.**
+`Company.timezone` (padrão `America/Sao_Paulo`, sem UI); `AiRun.apiSource` (`OFFICIAL`|`SIMULATED`, gravado na
+execução a partir de `env.ai.simulated`; nulo = origem não verificada, nunca deduzido) e `AiRun.cycleId`.
+
+**Cálculo (`analytics-queries.service.ts`, só leitura, SQL agregado):** coorte = ciclos com `startedAt` no período,
+classificados pelos marcos `<= instante de referência (at)`; encerrados pelo `closedAt`; "agora" pelo estado atual das
+conversas. Escopo da empresa sempre pelo id do `CompanyAccessGuard`. Admin usa o fuso da plataforma em tudo (inclusive
+a aba Uso, que reaproveita `aiUsage`). Custo = soma de `AiRun.costUsd` (já estimado por `pricing.ts`), em USD.
+
+**Exportação:** `report-content.ts` monta o conteúdo uma vez a partir do mesmo objeto da API; `report-pdf.ts` (pdfkit) e
+`report-xlsx.ts` (write-excel-file) só desenham. Em memória, `no-store`, `nosniff`, limite por usuário
+(`ExportRateLimiter`), auditoria `analytics.exported`. A tela passa `at` (até 24 h) para o arquivo reproduzir o recorte.
+Testes leem o .xlsx com `fflate` (devDependency).
+
+**Dados antigos:** um ciclo `BACKFILL` por conversa (só o ciclo atual; `humanRequestedAt` nulo ⇒ fora das médias).
+Não reconstruir ciclos antigos por suposição.

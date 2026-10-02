@@ -3,9 +3,10 @@
 Plataforma B2B **gerenciada** de atendimento automatizado pelo WhatsApp, com IA (Claude, da Anthropic).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 5** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
-> oficial da Meta** (Fase 3), **atendimento automático com IA + base de conhecimento** (Fase 4) e **equipe,
-> distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5).
+> **Estado atual: FASE 6** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
+> oficial da Meta** (Fase 3), **atendimento automático com IA + base de conhecimento** (Fase 4), **equipe,
+> distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5) e **Analytics e
+> relatórios com exportação em PDF e Excel** (Fase 6).
 >
 > ⚠️ Tudo foi testado **apenas com simuladores**: Graph API simulada (Meta) e API da Anthropic simulada. Nem a Meta
 > real nem o Claude real foram chamados até agora. Veja "Tipos de teste" abaixo antes de colocar em produção.
@@ -278,6 +279,64 @@ fila) ou um OWNER/ADMIN atribuir pelo botão "Atribuir a alguém".
 
 Ninguém altera o próprio perfil nem se desativa; a empresa sempre mantém um proprietário ativo.
 
+### Analytics e relatórios (Fase 6)
+
+Dois painéis com finalidades diferentes, ambos com seletor único de período (**Hoje**, **Últimos 7 dias**, **Últimos 30
+dias**) e exportação em **PDF** e **Excel (.xlsx)**:
+
+| | Quem acessa | Fuso | Conteúdo |
+|---|---|---|---|
+| `/dashboard/analytics` | **OWNER e ADMIN** da empresa (AGENT: 403 na API e item fora do menu) | `Company.timezone` (padrão `America/Sao_Paulo`) | Indicadores operacionais. **Nenhum** consumo, token ou custo da IA |
+| `/admin/analytics` | **SUPERADMIN** | `America/Sao_Paulo` (referência da plataforma) | Consolidado, mensagens, consumo e custo estimado da IA por origem e por empresa, consulta de uma empresa |
+
+**Atendimento = ciclo** (`ConversationCycle`): da criação ou reabertura da conversa até o encerramento. A mesma
+conversa reaberta gera um novo atendimento; o encerramento anterior continua contado no período em que aconteceu.
+Os marcos de cada ciclo são gravados **nas mesmas transações** dos fluxos das Fases 3 a 5 (`analytics/cycle-tracker.ts`):
+um webhook duplicado é desfeito junto com a mensagem e não cria ciclo; transferências entre funcionários não criam
+novo atendimento. No máximo um ciclo aberto por conversa (índice único parcial no banco).
+
+**Definições** (atendimentos iniciados no período, classificados pelo histórico até o instante de referência):
+
+| Indicador | Regra |
+|---|---|
+| Atendimentos | Ciclos com início no período |
+| Somente pela IA | A IA respondeu ou transferiu, **sem** entrada na fila e **sem** funcionário. Separado em encerrados × em andamento. Não prova que o problema foi resolvido |
+| Atendimento humano | Teve atribuição a um funcionário **ou** mensagem de funcionário (entrar na fila não basta). Vale o histórico: devolvido à IA depois continua "humano" |
+| Aguardando humano | Entrou na fila (pedido ou transferência da IA) e ainda não teve funcionário |
+| Sem resposta | Nem IA nem equipe (ex.: IA desligada ou fora do horário) |
+| Transferidos pela IA | Atendimentos com pelo menos uma transferência feita pela IA (cada um conta uma vez) |
+| Encerrados | Pelo **horário do encerramento** (inclusive de ciclos iniciados antes), separados em manual × inatividade |
+| Em andamento / na fila | Situação **agora** (independe do período; a tela mostra "Agora · hh:mm") |
+| Primeira resposta humana | Do pedido de atendimento humano (1ª entrada na fila ou atribuição direta, o que vier antes) até a 1ª mensagem de funcionário. IA, aviso de fila e mensagens do sistema não contam. Sem resposta = fora da média (contado em "pedidos sem resposta") |
+| Espera na fila | Por atendimento: **soma das esperas concluídas por atribuição** (várias entradas na fila são somadas; saída sem atribuição descarta a espera; espera em andamento não entra). Média por atendimento |
+| Mensagens (admin) | Recebidas (únicas por wamid) e enviadas por origem: IA, equipe, avisos do sistema; falhas à parte |
+| Custo (admin) | Soma de `AiRun.costUsd` (estimado na execução por `pricing.ts`; nenhuma fórmula nova), em **USD**, separado por origem. Custo médio por atendimento = custo das execuções do período ligadas a um atendimento ÷ atendimentos distintos com custo |
+
+Médias sem amostras aparecem como **"Sem dados"** (nunca zero); valores sem base de cálculo, como **"Indisponível"**.
+
+**Períodos**: calendário no fuso do relatório, sempre incluindo o dia atual — `today` = 00:00 de hoje até agora;
+`last7days` = hoje + 6 dias anteriores; `last30days` = hoje + 29 dias anteriores. O início do dia é calculado pelo
+PostgreSQL (`AT TIME ZONE`), correto também em dias de mudança de horário.
+
+**Exportações** (`GET .../analytics/export?format=pdf|xlsx&period=...&at=...`): geradas em memória (nada é gravado em
+disco), com `Content-Disposition: attachment`, `Cache-Control: no-store` e `X-Content-Type-Options: nosniff`; mesmas
+permissões dos relatórios; limite de 20 exportações por usuário a cada 10 minutos (em memória); auditadas
+(`analytics.exported`). A tela envia o **instante de referência** (`at`, até 24 h atrás) do relatório exibido: o arquivo
+usa o mesmo recorte, e os atendimentos e marcos posteriores a esse instante não entram. A "situação atual" é sempre a
+do momento da geração. O PDF e o Excel são desenhados do mesmo conteúdo (`report-content.ts`); o Excel tem abas
+Resumo, Diário, Notas e, no admin, Consumo IA e Por empresa, com números reais e formatos de duração, data e US$.
+
+**Origem do consumo da IA** (`AiRun.apiSource`), gravada na execução: `OFFICIAL` (api.anthropic.com) ou `SIMULATED`
+(qualquer outro endereço). Registros anteriores à Fase 6 ficam **nulos = origem não verificada** (não são deduzidos).
+Simulado e não verificado nunca entram no custo oficial. A aba **Uso** (admin → empresa) usa o mesmo período, fuso e
+separação por origem do Analytics.
+
+**Dados anteriores à Fase 6**: a migration cria um ciclo `BACKFILL` por conversa, só com fatos verificáveis (início do
+ciclo atual, encerramento, espera em andamento, primeira resposta da IA/atribuição/mensagem de funcionário dentro do
+ciclo). Ciclos anteriores de conversas já reabertas não existem nos dados e **não** são inventados. Ciclos reconstruídos
+entram nas contagens, mas não nas médias de tempo (não há como saber quando o atendimento humano foi pedido); a tela
+e os arquivos avisam quantos são.
+
 ## Pré-requisitos
 
 - Node.js **22.12+** (o NestJS 12 é ESM-only e depende de `require(esm)`)
@@ -531,6 +590,43 @@ Use **duas janelas do navegador** (uma normal e uma anônima) para ter dois func
    "Atendimento humano"; aí a reabertura vai para a fila/distribuição.
 9. **Supervisão**: como `admin@arthurai.local` → Empresas → Empresa Demo → **Equipe** (somente consulta).
 
+## Testar o Analytics localmente (Fase 6) — Windows / PowerShell
+
+Usa os mesmos simuladores (nenhuma chave real). Na pasta do projeto, atualize e aplique a migration nova:
+
+```powershell
+git pull origin claude/new-session-fucivv
+pnpm.cmd install
+pnpm.cmd db:deploy
+pnpm.cmd db:seed
+```
+
+Suba as quatro janelas (`pnpm.cmd whatsapp:mock-graph`, `pnpm.cmd ai:mock-anthropic`, `pnpm.cmd dev:api`,
+`pnpm.cmd dev:web`) e siga, um passo de cada vez:
+
+1. **Analytics da Empresa Demo**: entre como `owner@demo.local` / `demo-owner-dev-123` → **Analytics**.
+2. **Gerar atendimentos simulados** (outra janela do PowerShell):
+   ```powershell
+   pnpm.cmd whatsapp:simulate --from 5511966661111 --text "Qual o horário de funcionamento?"
+   pnpm.cmd whatsapp:simulate --from 5511966662222 --text "Quero falar com um atendente"
+   ```
+   O primeiro é respondido pela IA (simulada); o segundo é transferido para a equipe.
+3. **Atualizar os indicadores**: recarregue a página (F5). "Atendimentos" sobe 2; "Atendidos somente pela IA" e
+   "Transferidos pela IA" sobem 1 cada. Deixe `atendente@demo.local` **Disponível** (janela anônima), responda a
+   conversa transferida pela Inbox e recarregue: aparece a "Primeira resposta humana".
+4. **Filtros de período**: alterne **Hoje / Últimos 7 dias / Últimos 30 dias**; a linha abaixo dos botões mostra o
+   início, o fim e o fuso. Cards, gráficos e "Ver os números em tabela" mudam juntos.
+5. **Exportar PDF**: botão **PDF** → abre/baixa `analytics-empresa-demo-dev-....pdf` com período, fuso e indicadores.
+6. **Exportar Excel**: botão **Excel** → abas Resumo, Diário e Notas.
+7. **Funcionário sem acesso**: entre como `atendente@demo.local` / `demo-agent-dev-123`: o menu não mostra
+   **Analytics**; abrindo `http://localhost:3000/dashboard/analytics` à mão aparece "Acesso restrito" (a API responde 403).
+8. **Analytics do Super Admin**: entre como `admin@arthurai.local` / `admin-dev-password-123` → **Analytics**.
+9. **Consolidado e custos**: confira "Consumo da IA na plataforma": as execuções aparecem como **Simulador (não é custo
+   real)** e o custo oficial fica em US$ 0,00. Clique numa empresa no "Resumo por empresa" para ver só ela; o link
+   **Execuções da IA** abre a aba Uso com os mesmos números.
+10. **Custos fora do painel da empresa**: volte como `owner@demo.local`: o Analytics da empresa e os arquivos exportados
+    não mostram tokens nem custos.
+
 ## Usar o Claude de verdade (chave da Anthropic)
 
 1. Crie uma chave em https://console.anthropic.com (Settings → API Keys) numa conta com créditos.
@@ -573,8 +669,8 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
 o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
 respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
-a Anthropic real. Estado atual: 15 arquivos, 249 testes (inclui corridas: distribuição simultânea, transferências
-simultâneas, encerramento × mensagem nova).
+a Anthropic real. Estado atual: 16 arquivos, 276 testes (inclui corridas: distribuição simultânea, transferências
+simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso, reabertura, exportações e isolamento).
 
 ## Limitações conhecidas
 
@@ -610,4 +706,16 @@ simultâneas, encerramento × mensagem nova).
 - **Status de mensagens enviadas fora do Arthur AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
 - **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.
 - **Telefone**: o 9º dígito de celulares brasileiros é tratado ao vincular mensagens recebidas a contatos existentes; contatos cadastrados à mão continuam com o número digitado.
+- **Conversas só com a IA não são encerradas automaticamente** (o encerramento por inatividade da Fase 5 vale para
+  atendimentos atribuídos, e o manual exige assumir antes). No Analytics, "Somente pela IA — encerrados" tende a zero e
+  "Em andamento" acumula conversas antigas da IA. Mudar isso é uma decisão de produto ainda não tomada.
+- **Analytics**: dados anteriores à Fase 6 só têm o ciclo atual de cada conversa (reaberturas antigas não foram
+  registradas) e não entram nas médias de tempo; consumo antigo da IA aparece como "origem não verificada".
+- **Fuso da empresa** (`Company.timezone`) existe no banco, mas ainda não é editável pelo painel (padrão
+  `America/Sao_Paulo`); o Analytics do SUPERADMIN usa sempre `America/Sao_Paulo`.
+- **Primeira resposta humana** usa o momento em que o funcionário enviou a mensagem (registro no sistema), mesmo que
+  o WhatsApp depois a recuse.
+- **Exportação**: a "situação atual" reflete o momento da geração; os números históricos usam o instante de referência
+  da tela (até 24 h). Limite de exportações em memória (como o rate limit de login).
+- **Custo da IA em USD**, sem conversão para reais e sem custos de infraestrutura/WhatsApp.
 - **CSP parcial** (`frame-ancestors`, `base-uri`, `form-action`, `object-src`); `script-src` com nonce fica para depois.
