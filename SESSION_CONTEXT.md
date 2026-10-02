@@ -9,8 +9,8 @@ Vitest · TypeScript 6.0 · ESLint 9. Não atualizar versões sem motivo.
 
 ## 2. Branch e GitHub
 - Repositório `ArthurBortolussi/saas-automacao-de-ia-whatsapp`, branch **`claude/new-session-fucivv`** (única autorizada; não mexer na `main`).
-- Fases 1–5 publicadas e sincronizadas; último commit de funcionalidade `bffb6bc`. Sem PR aberto.
-- Desenvolvedor: iniciante, Windows 10 + PowerShell + Docker Desktop (usar `pnpm.cmd` nas instruções).
+- Fases 1–5 publicadas e sincronizadas; último commit de funcionalidade `bffb6bc`.
+- Ambiente do desenvolvedor: Windows + PowerShell (usar `pnpm.cmd` nas instruções).
 
 ## 3. Fases concluídas
 - **F1 Fundação:** login com sessão no banco (cookie httpOnly, argon2id), troca obrigatória de senha, Origin check,
@@ -76,8 +76,7 @@ pnpm ai:mock-anthropic     # Anthropic simulada :4020 (NÃO é o Claude)
 pnpm whatsapp:simulate --from 5511988887777 --text "Olá"
 pnpm lint && pnpm typecheck && pnpm build && pnpm test
 ```
-- Logins dev: `admin@arthurai.local`/`admin-dev-password-123`, `owner@demo.local`/`demo-owner-dev-123`,
-  `atendente@demo.local`/`demo-agent-dev-123`.
+- Logins de dev (fictícios, criados pelo seed): ver README.
 - Armadilha: variáveis do sistema vencem o `.env`; na nuvem do Claude Code rode
   `ANTHROPIC_BASE_URL=http://localhost:4020 pnpm dev:api`. Não commitar `apps/web/AGENTS.md`/`CLAUDE.md` (gerados pelo `next dev`).
 
@@ -86,7 +85,7 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test
   Anthropic substituídas por servidores falsos; inclui corridas de concorrência. Workers drenados com `drain()`.
 - **Não validados com APIs reais:** Meta e Claude (só simuladores). Qualidade e custo reais da IA desconhecidos.
 - Limitações: rate limit em memória; Inbox por polling e 50 conversas; mídia só como aviso e envio só de texto; sem
-  templates (nada fora da janela de 24h); um usuário por empresa; disponibilidade manual; funcionário não puxa da fila;
+  templates (nada fora da janela de 24h); cada usuário pertence a uma só empresa; disponibilidade manual; funcionário não puxa da fila;
   base só texto e seleção por palavras; sem limite de gasto (decisão do proprietário); custo é estimativa.
 
 ## 8. Próxima etapa
