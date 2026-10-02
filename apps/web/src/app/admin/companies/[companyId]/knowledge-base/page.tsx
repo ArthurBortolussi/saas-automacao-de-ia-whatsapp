@@ -1,12 +1,12 @@
-import { BookOpen } from "lucide-react";
-import { PlaceholderPanel } from "@/components/placeholder-panel";
+import type { KnowledgeListResponse } from "@arthur-ai/shared";
+import { KnowledgeBaseManager } from "@/components/ai/knowledge-base-manager";
+import { fetchPageData } from "@/lib/api-server";
+import { knowledgeQuery } from "@/lib/knowledge-query";
 
-export default function Page() {
-  return (
-    <PlaceholderPanel
-      icon={<BookOpen />}
-      title="Base de conhecimento"
-      description="Documentos e informações que o assistente usará para responder os clientes. Disponível em uma próxima fase."
-    />
-  );
+export default async function CompanyKnowledgePage({ params, searchParams }: PageProps<"/admin/companies/[companyId]/knowledge-base">) {
+  const { companyId } = await params;
+  const { q, status, query } = knowledgeQuery(await searchParams);
+  const id = encodeURIComponent(companyId);
+  const data = await fetchPageData<KnowledgeListResponse>(`/companies/${id}/knowledge-base?${query}`);
+  return <KnowledgeBaseManager companyId={companyId} basePath={`/admin/companies/${id}/knowledge-base`} data={data} q={q} status={status} />;
 }

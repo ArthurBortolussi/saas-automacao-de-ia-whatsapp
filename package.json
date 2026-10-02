@@ -20,7 +20,8 @@
     "db:status": "pnpm --filter @arthur-ai/database run migrate:status",
     "db:seed": "pnpm build:packages && pnpm --filter @arthur-ai/database run seed",
     "whatsapp:mock-graph": "node apps/api/scripts/whatsapp-mock-graph.mjs",
-    "whatsapp:simulate": "node apps/api/scripts/whatsapp-simulate-inbound.mjs"
+    "whatsapp:simulate": "node apps/api/scripts/whatsapp-simulate-inbound.mjs",
+    "ai:mock-anthropic": "node apps/api/scripts/ai-mock-anthropic.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

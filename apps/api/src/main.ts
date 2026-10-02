@@ -35,6 +35,14 @@ async function bootstrap(): Promise<void> {
       : "WhatsApp: desabilitado (variáveis WHATSAPP_* ausentes). O restante do sistema funciona normalmente.",
     "Bootstrap",
   );
+  // Nunca a chave: só se existe, o modelo e para onde as chamadas vão.
+  const { ai } = env;
+  Logger.log(
+    ai.configured
+      ? `IA: configurada (modelo ${ai.model}, esforço ${ai.effort}${ai.simulated ? `, API SIMULADA em ${ai.baseUrl}` : ""})`
+      : "IA: não configurada (ANTHROPIC_API_KEY ausente). Nenhuma resposta automática; o restante do sistema funciona normalmente.",
+    "Bootstrap",
+  );
 }
 
 bootstrap().catch((error: unknown) => {

@@ -1,4 +1,7 @@
 import type {
+  AiHandoffReason,
+  AiRunResult,
+  AiTone,
   CompanyStatus,
   ContactSource,
   ContactStatus,
@@ -94,4 +97,41 @@ export function formatTime(iso: string): string {
 
 export function formatDateTime(iso: string): string {
   return dateTimeFormatter.format(new Date(iso));
+}
+
+// ---------------------------------------------------------------- FASE 4
+
+export const AI_TONE_LABEL: Record<AiTone, string> = {
+  FORMAL: "Formal",
+  PROFESSIONAL: "Profissional e cordial",
+  FRIENDLY: "Amigável e próximo",
+};
+
+export const AI_HANDOFF_REASON_LABEL: Record<AiHandoffReason, string> = {
+  CUSTOMER_REQUEST: "o cliente pediu um atendente",
+  MISSING_INFORMATION: "a IA não tinha a informação na base",
+  MODEL_REFUSAL: "a IA recusou o pedido",
+  INCOMPLETE_RESPONSE: "a resposta da IA ficou incompleta ou inadequada",
+  AI_ERROR: "erro no serviço de IA",
+  UNSUPPORTED_CONTENT: "o cliente enviou um conteúdo que a IA não interpreta (áudio, imagem…)",
+  CONVERSATION_LIMIT: "limite de respostas automáticas por hora (proteção contra loop)",
+};
+
+export const AI_RUN_RESULT_LABEL: Record<AiRunResult, string> = {
+  REPLIED: "Respondeu",
+  HANDOFF: "Transferiu",
+  DISCARDED: "Descartada",
+  ERROR: "Erro",
+};
+
+export const WEEKDAY_SHORT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"] as const;
+
+export function formatUsd(value: string | null): string {
+  if (value === null) return "—";
+  const amount = Number(value);
+  return `US$ ${amount.toLocaleString("pt-BR", { minimumFractionDigits: amount > 0 && amount < 0.01 ? 4 : 2, maximumFractionDigits: 4 })}`;
+}
+
+export function formatNumber(value: number | null): string {
+  return value === null ? "—" : value.toLocaleString("pt-BR");
 }

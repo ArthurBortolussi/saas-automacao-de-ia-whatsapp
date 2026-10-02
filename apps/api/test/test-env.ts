@@ -15,10 +15,13 @@ export function useTestDatabaseEnv(): string {
   process.env["NODE_ENV"] = "test";
   // Sem timer do worker do WhatsApp nos testes: quem precisa processa a fila com worker.drain().
   process.env["WHATSAPP_WORKER_INTERVAL_MS"] = "0";
-  // Idem para a IA (worker.drain() nos testes). Sem chave por padrão: a IA fica "não configurada" e
-  // nenhum teste chama a Anthropic real. Vazio (e não removido) para o .env do desenvolvedor não repor o valor.
-  process.env["AI_WORKER_INTERVAL_MS"] = "0";
+  // IA: os testes não herdam nada do .env do desenvolvedor (vazio = padrão do código; vazio, e não removido,
+  // para o .env não repor o valor). Sem chave, a IA fica "não configurada" e nenhum teste chama a Anthropic real.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith("AI_") || key.startsWith("ANTHROPIC_")) process.env[key] = "";
+  }
   process.env["ANTHROPIC_API_KEY"] = "";
   process.env["ANTHROPIC_BASE_URL"] = "";
+  process.env["AI_WORKER_INTERVAL_MS"] = "0";
   return testUrl;
 }

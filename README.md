@@ -1,14 +1,15 @@
 # Arthur AI
 
-Plataforma B2B **gerenciada** de atendimento automatizado (futuramente via WhatsApp + IA).
+Plataforma B2B **gerenciada** de atendimento automatizado pelo WhatsApp, com IA (Claude, da Anthropic).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 3** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2) e integração com a
-> **WhatsApp Cloud API oficial da Meta** (Fase 3). A IA (respostas automáticas) **ainda não existe**: chega na Fase 4.
+> **Estado atual: FASE 4** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
+> oficial da Meta** (Fase 3) e **atendimento automático com IA + base de conhecimento** (Fase 4).
 >
-> ⚠️ A integração foi testada **apenas com uma Graph API simulada**. Ela ainda não foi validada com um número real da Meta.
+> ⚠️ Tudo foi testado **apenas com simuladores**: Graph API simulada (Meta) e API da Anthropic simulada. Nem a Meta
+> real nem o Claude real foram chamados até agora. Veja "Tipos de teste" abaixo antes de colocar em produção.
 >
-> Contexto para sessões do Claude Code (regras de segurança, convenções e o plano da Fase 4): veja [`CLAUDE.md`](CLAUDE.md).
+> Contexto para sessões do Claude Code (regras de segurança, convenções e estado do projeto): veja [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
@@ -101,10 +102,109 @@ Inbox (funcionário) ──► API ──► Message PENDING ──► Graph API
 - **Status monotônicos**: `delivered` depois de `read` não volta a mensagem para trás; `failed` não desfaz uma mensagem lida.
 - **Envio (outbox)**: a mensagem nasce `PENDING` e só vira `SENT` com o wamid devolvido pela Meta. Erros de token, janela de 24h e destinatário → `FAILED` com motivo em português. Limite de taxa, 5xx e rede → nova tentativa com backoff (até 5).
 - **Janela de 24h**: mensagem livre só até 24h após a última mensagem do cliente. Fora dela o envio é recusado antes de chamar a Meta. O cliente HTTP já aceita conteúdo do tipo `template` para o envio futuro de modelos aprovados.
-- **Modos**: humanos só enviam em `HUMAN`. Mensagens recebidas nunca mudam o modo. Conversas novas do WhatsApp nascem em `AI`, mas **nada responde automaticamente** até a Fase 4: alguém precisa clicar em "Assumir atendimento".
-- **Preparado para a Fase 4**: `ConversationEvents.onInboundMessage()` avisa sobre cada mensagem nova, e `WhatsAppOutboundService.send(..., { type: "AI" })` é o mesmo envio dos humanos (recusa se `aiMayReply(mode)` for falso).
+- **Modos**: humanos só enviam em `HUMAN`; a IA só em `AI`. Mensagens recebidas nunca mudam o modo (só a passagem automática da IA para humano, Fase 4). Conversas novas do WhatsApp nascem no modo padrão da empresa (configurável; padrão `AI`).
 - **"Nova conversa" pelo painel continua interna**: iniciar uma conversa no WhatsApp exige um modelo aprovado pela Meta, e o gerenciador de modelos fica para uma fase futura.
 - **Inbox**: atualiza sozinha a cada 5 s (polling, só com a aba visível).
+
+### Inteligência artificial (Fase 4)
+
+O assistente responde sozinho as conversas do WhatsApp em modo `AI`, usando só a base de conhecimento da empresa, e
+passa para a equipe quando não deve ou não consegue responder. Provedor: **API oficial da Anthropic** pelo SDK
+`@anthropic-ai/sdk`, modelo **`claude-sonnet-5-5`** (Claude Sonnet 5.5; configurável por `AI_MODEL`).
+
+```
+Webhook da Meta ─► fila do WhatsApp ─► grava Message + AiReplyTask NA MESMA TRANSAÇÃO (só se a conversa está em AI)
+                                                          │
+            worker da IA (PostgreSQL, a cada AI_WORKER_INTERVAL_MS) ◄─┘
+              1. espera o cliente parar de escrever (agrupamento) e reserva a conversa
+              2. checagens sem custo: modo AI? empresa ativa? IA ligada? chave? horário? janela 24h? WhatsApp ok?
+              3. contexto: regras fixas + empresa + base ATIVA da empresa + histórico recente desta conversa
+              4. Claude Sonnet (prompt caching) ─► resposta | transferir_para_humano | recusa | erro
+              5. envio pelo WhatsAppOutboundService da Fase 3; a tarefa vira DONE na MESMA transação da mensagem
+              6. AiRun: tokens (inclusive cache), custo estimado, resultado
+```
+
+**Confiabilidade**
+- **Nada se perde numa queda**: a tarefa é gravada junto com a mensagem recebida (não depende do evento em memória,
+  que só antecipa o ciclo). Lotes interrompidos têm a reserva vencida e são retomados por qualquer instância.
+- **Sem resposta duplicada**: uma tarefa por mensagem (`messageId` único); a reserva trava a linha da conversa
+  (`FOR UPDATE SKIP LOCKED`) e recusa conversas com lote em andamento; a tarefa só fica `DONE` na transação que grava a
+  mensagem enviada. Se a tarefa não estiver mais `RUNNING`, a transação é desfeita e nada é enviado.
+- **Humano assumiu**: qualquer troca de modo cancela as tarefas pendentes e em andamento da conversa. Uma resposta que
+  estava sendo gerada é descartada (registrada como `DISCARDED`), mesmo que a conversa já tenha voltado para a IA.
+  Devolver para a IA não responde mensagens antigas: só as que chegarem depois.
+- **Retentativas limitadas**: erros temporários (429, 5xx/529, rede, timeout) → até 3 tentativas com espera crescente
+  (o SDK faz mais 1 retentativa rápida em cada). Erros definitivos (chave inválida 401, 403, sem créditos 402, requisição
+  inválida) não são repetidos. Esgotou ou é definitivo → passa para humano.
+- **Proteção contra loop**: no máximo `AI_MAX_RUNS_PER_CONVERSATION_PER_HOUR` execuções por conversa por hora (ex.: um robô
+  respondendo a IA). Acima disso, passa para humano.
+
+**Agrupamento de mensagens** ("Olá." / "Queria saber o preço." / "Do clareamento."): a conversa só é processada quando
+o cliente fica `AI_BATCH_DELAY_MS` (padrão 8 s) sem escrever, ou quando a primeira mensagem pendente passa de
+`AI_BATCH_MAX_WAIT_MS` (padrão 30 s). Todas as tarefas pendentes da conversa entram no mesmo lote (`runId`) e geram
+**uma** resposta. O agrupamento é por conversa, e cada conversa pertence a uma empresa: nada é misturado. Mensagens que
+chegam durante a geração ficam para o lote seguinte.
+
+**Quando a IA não responde** (sem chamar o modelo): conversa em `HUMAN`/`PAUSED` (nem cria tarefa), IA desligada,
+chave ausente, fora do horário da IA, janela de 24h fechada, WhatsApp desligado/com erro, empresa pausada/inativa,
+mensagem que não pede resposta (reação, figurinha). Áudio, imagem, documento e localização → passa para humano, porque
+a IA não interpreta esses conteúdos.
+
+**Transferência para humano**: o modelo usa a ferramenta `transferir_para_humano` quando o cliente pede uma pessoa ou
+quando falta informação na base. Também transferem: recusa do modelo, resposta incompleta (`max_tokens`) ou
+inadequada (vazia, longa demais, com trechos do prompt interno), erro do serviço, conteúdo não suportado e o limite
+anti-loop. Na mesma transação: a mensagem de transferência (personalizada pela empresa ou a padrão) é gravada, a
+conversa vai para `HUMAN` com motivo e horário (`aiHandoffReason`/`aiHandoffAt`, visíveis na Inbox) e a auditoria
+registra `conversation.ai_handoff`. Se o WhatsApp não permitir a mensagem (janela fechada), transfere sem avisar.
+Não há transferência duplicada: depois dela a conversa não está mais em modo IA.
+
+**Horário da IA ≠ horário de funcionamento**: o horário de funcionamento da empresa (cadastro) é informação para o
+cliente; o horário da IA define quando ela pode responder sozinha. Opções: 24 horas, ou dias da semana + início/término
+num fuso IANA (padrão `America/Sao_Paulo`). Término menor que o início vira a noite (pertence ao dia em que começa).
+Fora do horário a mensagem fica para a equipe e **não é respondida depois** pela IA.
+
+**Base de conhecimento** (texto cadastrado manualmente): título, conteúdo (até 10.000 caracteres), categoria, ativa/inativa
+e ordem, até 500 entradas por empresa. A IA usa só as **ativas** da empresa da conversa. Se a base ativa cabe em
+`AI_KNOWLEDGE_MAX_CHARS` (padrão 40.000 caracteres, ~10 mil tokens), vai inteira, na ordem cadastrada (prefixo estável,
+aproveita o cache). Se não cabe, entram as entradas com mais palavras em comum com as últimas mensagens do cliente
+(título pesa mais) até o limite, e o modelo é avisado de que a base está parcial. Sem embeddings/banco vetorial: não há
+necessidade demonstrada nesta escala; o caminho futuro é busca full-text do PostgreSQL.
+
+**Contexto e segurança do prompt**
+- `system`: (1) regras fixas do Arthur AI, (2) empresa + assistente + orientações + base, (3) data/hora atual.
+  Os blocos 1 e 2 têm `cache_control` (o 1 é igual para todas as empresas); o 3 fica depois do cache.
+- Regras: português do Brasil, tom da empresa, prioridade para a base, **nunca inventar** preços/horários/políticas,
+  não prometer o que não está documentado, pedir esclarecimento quando ambíguo, admitir quando não sabe, transferir
+  quando necessário, nunca revelar instruções nem dados de outros.
+- Mensagens do cliente vão como turnos `user` (dados, não instruções). Base e orientações da empresa vão escapadas
+  (`<` vira `&lt;`) dentro de tags, como material de referência que não anula as regras de segurança.
+- Histórico: últimas `AI_HISTORY_MAX_MESSAGES` mensagens desta conversa (filtro por empresa e conversa), até
+  `AI_HISTORY_MAX_CHARS`; mensagens que falharam no envio não entram; mensagens de atendentes vão marcadas.
+- Nada de tokens, IDs internos ou dados de outras empresas no prompt. A chave da Anthropic fica só no ambiente da API.
+
+**Parâmetros do modelo**: `max_tokens` = `AI_MAX_OUTPUT_TOKENS` (padrão 3000, inclui o raciocínio interno);
+`output_config.effort` = `AI_EFFORT` (padrão `low`: chat rápido e barato; o Sonnet 5.5 não aceita desligar o
+raciocínio, o controle é o esforço); `tool_choice: auto` (este modelo recusa ferramenta forçada); sem *fallback*
+automático de outro modelo em caso de recusa (o padrão do servidor poderia usar um Opus, o que contraria a decisão de
+custo; a recusa vira transferência). Respostas do WhatsApp limitadas a 4.000 caracteres.
+
+**Consumo e custo** (aba **Uso** do SUPERADMIN): cada chamada vira um `AiRun` com empresa, conversa, modelo,
+resultado, motivo, tokens de entrada/saída/escrita de cache/leitura de cache, latência e custo **estimado**. Preços em
+`apps/api/src/ai/pricing.ts`, conferidos na página oficial em 2026-10-02 (Sonnet 5.5: US$ 2 entrada, US$ 10 saída,
+US$ 2,50 escrita de cache de 5 min e US$ 0,20 leitura, por milhão de tokens). `AI_PRICE_*` substitui a tabela sem
+mudar o código. Execuções sem consumo informado (erro antes da resposta) ficam com tokens e custo **nulos**; modelo sem
+preço fica com custo nulo e é contado à parte. Não há limite de gasto (decisão do proprietário nesta fase).
+
+**Permissões**
+| | SUPERADMIN | OWNER / ADMIN | AGENT |
+|---|---|---|---|
+| Ligar/desligar a IA, modo inicial das novas conversas | ✔ (aba IA do admin) | — | — |
+| Nome, tom, orientações, mensagem de transferência, horário e fuso | ✔ | ✔ (Configurações) | vê |
+| Base de conhecimento: criar, editar, ativar/desativar, excluir | ✔ (qualquer empresa) | ✔ (só a própria) | vê só as ativas |
+| Aba Uso (consumo e custo) | ✔ | — | — |
+
+Tudo conferido no backend: a rota da empresa recusa os campos técnicos (400) e as edições exigem OWNER/ADMIN (403).
+IDs de outra empresa respondem 404; rotas de outra empresa, 403.
 
 ## Pré-requisitos
 
@@ -145,8 +245,24 @@ Um único `.env` na raiz, lido pela API, pelo Prisma e pelo Next. Tudo é valida
 | `WHATSAPP_GRAPH_API_VERSION` | Padrão `v25.0` |
 | `WHATSAPP_GRAPH_API_BASE_URL` | Oficial: `https://graph.facebook.com`. Em dev pode apontar para o simulador; **produção só aceita a oficial** |
 | `WHATSAPP_WORKER_INTERVAL_MS` | Intervalo do worker (padrão 5000; `0` desliga o timer) |
+| `ANTHROPIC_API_KEY` | Chave da API da Anthropic. **Sem ela a IA fica "não configurada"** e o resto funciona. Nunca vai para o banco, o navegador ou os logs |
+| `ANTHROPIC_BASE_URL` | Padrão: API oficial. Em dev pode apontar para o simulador (`http://localhost:4020`); **produção só aceita a oficial** |
+| `AI_MODEL` | Padrão `claude-sonnet-5-5` |
+| `AI_EFFORT` | `low` (padrão), `medium` ou `high` |
+| `AI_MAX_OUTPUT_TOKENS` | Teto por resposta, incluindo o raciocínio (padrão 3000) |
+| `AI_BATCH_DELAY_MS` / `AI_BATCH_MAX_WAIT_MS` | Agrupamento: espera após a última mensagem (8000) e teto de espera (30000) |
+| `AI_HISTORY_MAX_MESSAGES` / `AI_HISTORY_MAX_CHARS` | Histórico enviado ao modelo (30 mensagens / 12.000 caracteres) |
+| `AI_KNOWLEDGE_MAX_CHARS` | Tamanho máximo da base no prompt (40.000 caracteres) |
+| `AI_MAX_RUNS_PER_CONVERSATION_PER_HOUR` | Proteção contra loop (20) |
+| `AI_WORKER_INTERVAL_MS` | Intervalo do worker da IA (padrão 2000; `0` desliga o timer) |
+| `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_OUTPUT_PER_MTOK`, `AI_PRICE_CACHE_WRITE_PER_MTOK`, `AI_PRICE_CACHE_READ_PER_MTOK` | Preço do `AI_MODEL` em US$ por milhão de tokens (os quatro ou nenhum); sem eles vale a tabela interna |
 
 As três primeiras ligam o WhatsApp: **todas ou nenhuma**. Sem nenhuma, a integração fica desligada e o resto do sistema funciona normalmente. Com só uma ou duas, a API não sobe (é quase sempre erro de configuração). Em produção, a API também se recusa a subir com os valores fictícios do `.env.example`.
+
+**Variáveis já definidas no sistema têm precedência sobre o `.env`** (o `.env` não sobrescreve). Se o seu computador ou
+servidor já tiver `ANTHROPIC_BASE_URL` ou `ANTHROPIC_API_KEY` definidas (algumas ferramentas definem), elas valem no
+lugar das do `.env`. O log de boot da API mostra se a IA está configurada e, quando não é a API oficial, para onde ela
+aponta; nunca mostra a chave.
 
 Gerar valores reais (PowerShell ou bash):
 
@@ -201,6 +317,10 @@ Contatos e conversas fictícios (nomes terminam em "Exemplo", telefones `55 11 9
 
 O seed não recria conversas de contatos que já têm alguma; para voltar ao estado inicial, apague as tabelas `Message`, `Conversation` e `Contact` do banco de dev e rode `pnpm db:seed`.
 
+IA (Fase 4): a Empresa Demo ganha a IA **ligada** (assistente "Sofia", tom amigável) e 6 informações fictícias na base
+(horário, endereço, preços, convênios; 1 inativa). Só é criado o que não existe: configurações e bases que você já
+alterou **não são sobrescritas**.
+
 ## Rodando
 
 ```bash
@@ -209,7 +329,7 @@ pnpm dev:web        # http://localhost:3000      (Next.js)
 ```
 
 - **SUPERADMIN**: entre em http://localhost:3000/login com `admin@arthurai.local` → `/admin`.
-- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`, `/dashboard/contacts` e `/dashboard/inbox`.
+- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`, `/dashboard/contacts`, `/dashboard/inbox`, `/dashboard/knowledge-base` e `/dashboard/settings` (IA).
 - Usuário criado pelo painel: no primeiro login é levado a `/change-password`.
 
 Produção: `pnpm build`, depois `node apps/api/dist/main.js` e `pnpm --filter @arthur-ai/web start`.
@@ -233,6 +353,75 @@ Sem credenciais da Meta, dá para testar o fluxo inteiro com uma **Graph API sim
 5. Para simular falhas, escreva no texto da resposta: `#falha` (destinatário inválido), `#token` (token recusado, que deixa a conta "com erro") ou `#limite` (limite da Meta, com nova tentativa automática).
 
 No Windows, use `pnpm.cmd` no lugar de `pnpm`.
+
+## Testar a IA localmente (SIMULADO) — Windows / PowerShell
+
+O simulador `pnpm ai:mock-anthropic` imita a API da Anthropic em `http://localhost:4020`. **Não é o Claude**: responde
+por regras simples, procurando na base de conhecimento enviada no prompt. Serve para validar o fluxo (fila,
+agrupamento, envio pelo WhatsApp, transferência, consumo) sem chave e sem custo.
+
+### Tipos de teste
+
+| Teste | Anthropic | Meta | Como | Situação |
+|---|---|---|---|---|
+| Automatizado (`pnpm test`) | servidor falso no próprio teste | servidor falso no próprio teste | — | ✅ 207 testes |
+| Local simulado | `pnpm ai:mock-anthropic` | `pnpm whatsapp:mock-graph` | roteiro abaixo | ✅ validado (em Linux) |
+| IA real + Meta simulada | `ANTHROPIC_API_KEY` real, sem `ANTHROPIC_BASE_URL` | simulada | "Usar o Claude de verdade" | ⚠️ não testado |
+| Meta real | simulada ou real | número real + túnel HTTPS | "Conectar um número real" | ⚠️ não testado |
+
+### Roteiro (PowerShell, na pasta do projeto)
+
+1. Atualize o código e o banco (o Docker Desktop precisa estar aberto):
+   ```powershell
+   git pull
+   pnpm.cmd install
+   docker compose up -d
+   pnpm.cmd db:deploy
+   pnpm.cmd db:seed
+   ```
+2. No seu `.env`, acrescente o bloco **"Inteligência artificial"** do `.env.example` (os valores fictícios já apontam para
+   o simulador). Confira se não há variáveis `ANTHROPIC_*` definidas no Windows: `Get-ChildItem Env:ANTHROPIC*`
+   (se aparecer alguma, ela vence o `.env`; remova-a da sessão com `Remove-Item Env:ANTHROPIC_BASE_URL`).
+3. Abra **quatro** janelas do PowerShell, uma para cada comando:
+   ```powershell
+   pnpm.cmd whatsapp:mock-graph      # Meta simulada (:4010)
+   pnpm.cmd ai:mock-anthropic        # Anthropic simulada (:4020)
+   pnpm.cmd dev:api                  # API (:4000) — o log deve dizer "IA: configurada (... API SIMULADA ...)"
+   pnpm.cmd dev:web                  # painel (:3000)
+   ```
+4. Numa quinta janela, simule um cliente mandando três mensagens seguidas:
+   ```powershell
+   pnpm.cmd whatsapp:simulate --from 5511988887777 --text "Olá"
+   pnpm.cmd whatsapp:simulate --from 5511988887777 --text "Queria saber o preço"
+   pnpm.cmd whatsapp:simulate --from 5511988887777 --text "Do clareamento"
+   ```
+   Uns 10 segundos depois (espera do agrupamento), a janela do simulador da Anthropic mostra **uma** chamada e a da Meta
+   mostra **uma** resposta com o preço do clareamento da base.
+5. Entre em http://localhost:3000 como `owner@demo.local` → **Inbox**: a resposta aparece marcada como "IA".
+6. Transferência: `pnpm.cmd whatsapp:simulate --from 5511988887777 --text "Quero falar com um atendente"`. A conversa vai
+   para "Humano atendendo", com o aviso do motivo, e a IA para de responder. Use **Devolver para IA** para voltar.
+7. Outros gatilhos do simulador (no texto do cliente): `#seminfo` (falta informação), `#recusa`, `#corta` (resposta
+   truncada), `#erro` (529, com nova tentativa), `#chave` (chave inválida), `#lento` (8 s; dá tempo de clicar em
+   **Assumir atendimento** e ver a resposta ser descartada).
+8. Como `admin@arthurai.local`: **Empresas → Empresa Demo → IA** (ligar/desligar, modo inicial, horário),
+   **Base de conhecimento** e **Uso** (execuções, tokens, cache e custo estimado).
+
+Para testar o horário: na aba IA, desmarque "Atendimento 24 horas", deixe um intervalo que não inclua agora e simule
+uma mensagem: ela fica para a equipe e não é respondida.
+
+## Usar o Claude de verdade (chave da Anthropic)
+
+1. Crie uma chave em https://console.anthropic.com (Settings → API Keys) numa conta com créditos.
+2. No `.env` (nunca no código, em commits, prints ou mensagens), troque o valor de `ANTHROPIC_API_KEY` pela sua chave e
+   **apague a linha `ANTHROPIC_BASE_URL`** (sem ela, a API oficial é usada). Não digite a chave em comandos que fiquem no
+   histórico do terminal; edite o arquivo:
+   ```powershell
+   notepad .env
+   ```
+3. Pare o simulador da Anthropic e reinicie a API (`Ctrl+C` e `pnpm.cmd dev:api`). O log deve dizer
+   `IA: configurada (modelo claude-sonnet-5-5, esforço low)` **sem** "SIMULADA".
+4. Repita o passo 4 do roteiro acima (a Meta pode continuar simulada). Na aba **Uso**, confira tokens e custo.
+5. Erros comuns: 401 (chave errada) e 402 (sem créditos) aparecem na aba Uso como "Erro" e a conversa vai para humano.
 
 ## Conectar um número real (Meta)
 
@@ -259,6 +448,11 @@ pnpm test           # testes e2e da API
 
 Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup aplica as migrations com `prisma migrate deploy`, cada suíte trunca as tabelas, e tudo passa pelo HTTP com cookie de sessão real (sem mocks do Prisma).
 
+A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
+o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
+respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
+a Anthropic real. Estado atual: 12 arquivos, 207 testes.
+
 ## Limitações conhecidas
 
 - **Rate limit em memória**: zera quando a API reinicia e não é compartilhado entre instâncias. Com mais de uma instância, precisa de store compartilhado (ex.: Redis — fora do escopo desta fase). Veja também `TRUST_PROXY` acima.
@@ -269,7 +463,16 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 - **Inbox mostra as 50 conversas mais recentes** do filtro (com aviso quando há mais); paginação da lista fica para depois.
 - **WhatsApp validado só com simulador**: a integração real depende das credenciais da Meta (ver "Conectar um número real").
 - **Mídia**: imagens, áudios, documentos e localização são registrados com um aviso ("tipo X recebido"), mas o conteúdo ainda não é baixado nem exibido. O envio é só de texto.
-- **Modelos (templates)**: não há gerenciador. Fora da janela de 24h não é possível escrever ao cliente.
+- **Modelos (templates)**: não há gerenciador. Fora da janela de 24h não é possível escrever ao cliente (nem a IA).
+- **IA validada só com simulador**: o Claude real nunca foi chamado neste projeto; a qualidade das respostas e o custo
+  real precisam ser conferidos com uma chave de verdade e conversas reais antes de ligar para clientes.
+- **IA fora do horário não responde depois**: a mensagem fica para a equipe; não há "mensagem de ausência" automática.
+- **Base de conhecimento só com texto**: sem upload de PDF/arquivos. Bases maiores que `AI_KNOWLEDGE_MAX_CHARS` usam
+  seleção por palavras em comum (pode deixar de fora uma entrada relevante escrita com outras palavras).
+- **Mídia e IA**: áudio, imagem e documentos vão direto para humano (a IA não interpreta).
+- **Sem limite de gasto**: nada interrompe a IA por orçamento (decisão desta fase); só o limite anti-loop por conversa.
+- **Custo é estimativa**: calculado pela tabela de preços configurada; a fatura oficial é a do console da Anthropic.
+- **Respostas geradas durante uma troca de modo** são pagas e descartadas (aparecem como "Descartada" no Uso).
 - **Envio duplicado em caso extremo**: se a API cair depois que a Meta aceitou a mensagem e antes de gravar o wamid, a retentativa pode reenviar (a Cloud API não oferece chave de idempotência).
 - **Status de mensagens enviadas fora do Arthur AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
 - **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.

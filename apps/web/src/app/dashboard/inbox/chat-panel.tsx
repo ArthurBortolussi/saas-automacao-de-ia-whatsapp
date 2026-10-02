@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { ChannelBadge } from "@/components/channel-badge";
 import { ConversationModeBadge } from "@/components/contact-badges";
+import { AI_HANDOFF_REASON_LABEL, formatDateTime } from "@/lib/format";
 import { Composer } from "./composer";
 import { MarkRead } from "./mark-read";
 import { MessageThread } from "./message-thread";
@@ -42,6 +43,11 @@ export function ChatPanel({ companyId, conversation, messages, filter }: ChatPan
           </div>
         </div>
         <ModeControls companyId={companyId} conversationId={conversation.id} mode={conversation.mode} />
+        {conversation.mode === "HUMAN" && conversation.aiHandoffReason && conversation.aiHandoffAt ? (
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            A IA transferiu esta conversa para a equipe em {formatDateTime(conversation.aiHandoffAt)}: {AI_HANDOFF_REASON_LABEL[conversation.aiHandoffReason]}.
+          </p>
+        ) : null}
       </header>
       <MessageThread companyId={companyId} conversationId={conversation.id} latest={messages} />
       <Composer

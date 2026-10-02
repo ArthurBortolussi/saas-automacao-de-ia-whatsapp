@@ -250,8 +250,47 @@ async function seedSimulatedWhatsApp() {
   console.log("WhatsApp: número SIMULADO criado para a Empresa Demo (phone_number_id 990000000000101).");
 }
 
+/**
+ * Fase 4: IA ligada e base de conhecimento FICTÍCIA para a Empresa Demo. Cria só o que não existe:
+ * configurações já salvas e bases já preenchidas pelo desenvolvedor nunca são sobrescritas.
+ */
+async function seedAiDemo() {
+  const company = await prisma.company.findUnique({ where: { slug: "empresa-demo-dev" } });
+  if (!company) return;
+  if (await prisma.aiSettings.findUnique({ where: { companyId: company.id } })) {
+    console.log("IA: Empresa Demo já tem configuração de IA (mantida).");
+  } else {
+    await prisma.aiSettings.create({
+      data: {
+        companyId: company.id,
+        enabled: true,
+        assistantName: "Sofia",
+        tone: "FRIENDLY",
+        instructions: "Sempre que fizer sentido, ofereça agendar uma avaliação. Dados fictícios de desenvolvimento.",
+      },
+    });
+    console.log("IA: ligada para a Empresa Demo (assistente Sofia).");
+  }
+  if ((await prisma.knowledgeEntry.count({ where: { companyId: company.id } })) > 0) {
+    console.log("IA: base de conhecimento da Empresa Demo já tem informações (mantida).");
+    return;
+  }
+  await prisma.knowledgeEntry.createMany({
+    data: [
+      { companyId: company.id, position: 0, category: "Atendimento", title: "Horário de funcionamento", content: "Segunda a sexta, das 8h às 18h. Sábado, das 8h às 12h. Fechado aos domingos e feriados." },
+      { companyId: company.id, position: 1, category: "Atendimento", title: "Endereço", content: "Rua Fictícia, 123 – Centro, São Paulo/SP. Há estacionamento conveniado na mesma rua." },
+      { companyId: company.id, position: 2, category: "Preços", title: "Clareamento dental", content: "Clareamento a laser: R$ 800,00 à vista ou em até 4x sem juros no cartão. Inclui avaliação." },
+      { companyId: company.id, position: 3, category: "Preços", title: "Limpeza (profilaxia)", content: "Limpeza completa: R$ 180,00. Duração aproximada de 40 minutos." },
+      { companyId: company.id, position: 4, category: "Políticas", title: "Convênios", content: "Atendemos os convênios Odonto Exemplo e Sorriso Fictício. Outros convênios: consultar a recepção." },
+      { companyId: company.id, position: 5, category: "Preços", active: false, title: "Promoção antiga (inativa)", content: "Promoção encerrada: não deve ser usada pela IA." },
+    ],
+  });
+  console.log("IA: 6 informações fictícias na base da Empresa Demo (1 inativa).");
+}
+
 main()
   .then(seedSimulatedWhatsApp)
+  .then(seedAiDemo)
   .catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
