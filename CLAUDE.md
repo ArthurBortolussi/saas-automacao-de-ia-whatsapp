@@ -111,7 +111,7 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test     # validação complet
 No Windows (ambiente do desenvolvedor): `pnpm.cmd` no lugar de `pnpm`, no PowerShell.
 Testes: **e2e contra PostgreSQL real** (`TEST_DATABASE_URL`, o nome precisa terminar em `_test` e é truncado),
 pelo HTTP com cookie real; a Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`,
-`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 16 arquivos, 276 testes passando.
+`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 17 arquivos, 286 testes passando.
 `test/ai-simulator.e2e.test.ts` sobe o próprio `scripts/ai-mock-anthropic.mjs` com a base da Empresa Demo.
 Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` / `team.drain()` antes de limpar o banco
 (`TEAM_WORKER_INTERVAL_MS=0` nos testes). Helpers da equipe em `test/team-helpers.ts`.
@@ -141,17 +141,16 @@ mais recentes; mídia recebida só como aviso e envio só de texto; sem gerencia
 enviado fora da janela de 24h; "Nova conversa" pelo painel é interna; possível envio duplicado se a API cair entre
 o aceite da Meta e a gravação do wamid; sem edição de empresa/usuário pelo painel; IA validada só com simulador;
 base só com texto; mídia vai direto para humano; sem limite de gasto (decisão do proprietário); disponibilidade
-manual (não depende de presença); funcionário não puxa conversa da fila manualmente; conversas só com a IA nunca são
-encerradas automaticamente (Analytics: "somente IA encerrados" ≈ 0 e "em andamento" acumula — decisão de produto
-pendente); fuso da empresa sem edição pelo painel; custo da IA só em USD e estimado.
+manual (não depende de presença); funcionário não puxa conversa da fila manualmente; fuso da empresa sem edição pelo
+painel; custo da IA só em USD e estimado; o 1º ciclo após ativar o encerramento da IA fecha o acúmulo antigo (horário
+real, sem retroagir).
 
 ## Próximos passos (fora da Fase 4, quando o cliente pedir)
 
 Validar o WhatsApp com número real e a IA com a chave real (conversas de teste, medir custo por conversa, revisar o
 prompt com respostas reais); gerenciador de modelos aprovados; mídia; edição/pausa de empresas e usuários;
 tempo real (websocket) se o polling pesar; rate limit compartilhado se houver mais de uma instância da API;
-upload de documentos e busca na base (full-text do PostgreSQL) se as bases crescerem; decidir o encerramento
-automático de conversas da IA; edição do fuso da empresa.
+upload de documentos e busca na base (full-text do PostgreSQL) se as bases crescerem; edição do fuso da empresa.
 
 ## Fase 4 — implementada (IA e base de conhecimento)
 
@@ -259,3 +258,13 @@ Testes leem o .xlsx com `fflate` (devDependency).
 
 **Dados antigos:** um ciclo `BACKFILL` por conversa (só o ciclo atual; `humanRequestedAt` nulo ⇒ fora das médias).
 Não reconstruir ciclos antigos por suposição.
+
+## Pós-Fase 6 — encerramento automático da IA (decisão do proprietário)
+
+Dois prazos de inatividade independentes por empresa: equipe (`TeamSettings.inactivityTimeoutMinutes`, aba Equipe) e
+IA (`AiSettings.inactivityTimeoutMinutes`, padrão 240, 5–43.200, CHECK na migration `20261005120000_ai_inactivity_timeout`;
+OWNER/ADMIN editam em Configurações da IA, SUPERADMIN na aba IA do admin). `DistributionService.closeInactiveAi`
+(chamado pelo `TeamWorker`) só encerra `mode = AI` + `status = OPEN`, sem mensagem `PENDING` nem `AiReplyTask`
+`PENDING/RUNNING`, sob `lockCompanyTeam` e com gravação condicional a modo/estado/`lastActivityAt` lido; reutiliza
+`closeInTx` (fecha o ciclo, cancela tarefas, audita `conversation.closed` com `reason = INACTIVITY`, `fromStatus = OPEN`).
+HUMAN/PAUSED nunca. `closedAt` = horário real do encerramento (nada retroativo). Analytics: `CycleBreakdown.aiOnlyClosedInactivity`.

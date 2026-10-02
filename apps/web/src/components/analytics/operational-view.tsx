@@ -66,7 +66,9 @@ export function OperationalView({ data }: { data: OperationalData }) {
         <StatCard
           label="Atendidos somente pela IA"
           value={formatNumber(aiOnly)}
-          hint={`${formatNumber(cycles.aiOnlyClosed)} encerrados · ${formatNumber(cycles.aiOnlyOpen)} em andamento`}
+          hint={`${formatNumber(cycles.aiOnlyOpen)} em andamento · ${formatNumber(cycles.aiOnlyClosedInactivity)} encerrados por inatividade${
+            cycles.aiOnlyClosed > cycles.aiOnlyClosedInactivity ? ` · ${formatNumber(cycles.aiOnlyClosed - cycles.aiOnlyClosedInactivity)} finalizados manualmente` : ""
+          }`}
         />
         <StatCard label="Atendimento humano" value={formatNumber(cycles.withHuman)} hint="Com participação de alguém da equipe" />
         <StatCard
@@ -102,7 +104,7 @@ export function OperationalView({ data }: { data: OperationalData }) {
 
       <p className="text-xs text-muted-foreground">
         &quot;Atendidos somente pela IA&quot; significa que não houve transferência nem participação da equipe — não garante que o problema do
-        cliente foi resolvido. Os números marcados com &quot;Agora&quot; mostram a situação atual, independentemente do período escolhido.
+        cliente foi resolvido. &quot;Encerrado por inatividade&quot; quer dizer apenas que o cliente parou de responder. Os números marcados com &quot;Agora&quot; mostram a situação atual, independentemente do período escolhido.
       </p>
 
       <div className="grid gap-6 lg:grid-cols-5">

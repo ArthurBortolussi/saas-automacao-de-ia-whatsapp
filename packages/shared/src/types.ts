@@ -260,6 +260,8 @@ export interface AiSettingsView {
   scheduleDays: number[];
   scheduleStart: string;
   scheduleEnd: string;
+  /** Minutos sem atividade para encerrar automaticamente um atendimento só com a IA. */
+  inactivityTimeoutMinutes: number;
   /** null enquanto a empresa usa só os valores padrão. */
   updatedAt: string | null;
 }

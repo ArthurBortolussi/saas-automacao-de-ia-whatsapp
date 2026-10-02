@@ -251,6 +251,17 @@ recebida, mensagem enviada pela equipe/IA/sistema e pela própria atribuição. 
 enviada; o encerramento é condicional à última atividade lida, e a mensagem recebida trava a linha da conversa: se o
 cliente escrever durante o encerramento, ou o encerramento desiste, ou a mensagem reabre o atendimento.
 
+**Encerramento automático da IA** (pós-Fase 6): atendimentos **só com a IA** (modo `AI`, estado `OPEN`) têm prazo
+próprio, independente do prazo da equipe: `AiSettings.inactivityTimeoutMinutes`, padrão **240 min (4 h)**, de 5 min a
+30 dias, editável por OWNER/ADMIN (e SUPERADMIN) em **Configurações → Encerramento automático** (dashboard) ou na aba
+**IA** do admin. Roda no mesmo worker da equipe (`TEAM_WORKER_INTERVAL_MS`), sem depender de navegador aberto.
+Conversas `HUMAN` e `PAUSED` nunca são encerradas por esse prazo. Não encerra se houver mensagem sendo enviada ou
+tarefa da IA pendente/em geração; a gravação é condicional ao modo `AI`, ao estado `OPEN` e à última atividade lida
+(sob a trava da empresa), então execuções simultâneas encerram cada atendimento uma vez e uma mensagem do cliente no
+meio do caminho cancela o encerramento. O encerramento usa o mesmo caminho da Fase 5 (`closeReason = INACTIVITY`,
+ciclo do Analytics fechado, tarefas da IA canceladas, auditoria). O cliente que volta reabre a mesma conversa no modo
+padrão da empresa. Encerrar por inatividade **não** significa que o problema do cliente foi resolvido.
+
 **Reabertura**: mensagem nova numa conversa encerrada reabre **a mesma conversa** (histórico preservado) num ciclo novo,
 no **modo padrão da empresa**: IA → modo IA, sem responsável, a IA responde; humano → fila e distribuição. Mensagens
 repetidas da Meta (mesmo wamid) não reabrem duas vezes.
@@ -305,7 +316,7 @@ novo atendimento. No máximo um ciclo aberto por conversa (índice único parcia
 | Aguardando humano | Entrou na fila (pedido ou transferência da IA) e ainda não teve funcionário |
 | Sem resposta | Nem IA nem equipe (ex.: IA desligada ou fora do horário) |
 | Transferidos pela IA | Atendimentos com pelo menos uma transferência feita pela IA (cada um conta uma vez) |
-| Encerrados | Pelo **horário do encerramento** (inclusive de ciclos iniciados antes), separados em manual × inatividade |
+| Encerrados | Pelo **horário do encerramento** (inclusive de ciclos iniciados antes), separados em manual × inatividade. "Somente pela IA" mostra à parte quantos foram encerrados por inatividade (o cliente parou de responder) |
 | Em andamento / na fila | Situação **agora** (independe do período; a tela mostra "Agora · hh:mm") |
 | Primeira resposta humana | Do pedido de atendimento humano (1ª entrada na fila ou atribuição direta, o que vier antes) até a 1ª mensagem de funcionário. IA, aviso de fila e mensagens do sistema não contam. Sem resposta = fora da média (contado em "pedidos sem resposta") |
 | Espera na fila | Por atendimento: **soma das esperas concluídas por atribuição** (várias entradas na fila são somadas; saída sem atribuição descarta a espera; espera em andamento não entra). Média por atendimento |
@@ -626,6 +637,11 @@ Suba as quatro janelas (`pnpm.cmd whatsapp:mock-graph`, `pnpm.cmd ai:mock-anthro
    **Execuções da IA** abre a aba Uso com os mesmos números.
 10. **Custos fora do painel da empresa**: volte como `owner@demo.local`: o Analytics da empresa e os arquivos exportados
     não mostram tokens nem custos.
+11. **Encerramento automático da IA**: como `owner@demo.local` → **Configurações** → "Encerramento automático" → coloque
+    `5` e salve. Simule um cliente (`pnpm.cmd whatsapp:simulate --from 5511966663333 --text "Qual o horário?"`) e espere
+    5 minutos sem mandar mensagens: em até alguns segundos depois do prazo a conversa aparece como finalizada na Inbox e,
+    no Analytics, em "encerrados por inatividade". Simule outra mensagem do mesmo número: a mesma conversa reabre com a
+    IA. Volte o prazo para `240` ao terminar.
 
 ## Usar o Claude de verdade (chave da Anthropic)
 
@@ -669,7 +685,7 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
 o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
 respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
-a Anthropic real. Estado atual: 16 arquivos, 276 testes (inclui corridas: distribuição simultânea, transferências
+a Anthropic real. Estado atual: 17 arquivos, 286 testes (inclui corridas: distribuição simultânea, transferências
 simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso, reabertura, exportações e isolamento).
 
 ## Limitações conhecidas
@@ -706,9 +722,14 @@ simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso
 - **Status de mensagens enviadas fora do Arthur AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
 - **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.
 - **Telefone**: o 9º dígito de celulares brasileiros é tratado ao vincular mensagens recebidas a contatos existentes; contatos cadastrados à mão continuam com o número digitado.
-- **Conversas só com a IA não são encerradas automaticamente** (o encerramento por inatividade da Fase 5 vale para
-  atendimentos atribuídos, e o manual exige assumir antes). No Analytics, "Somente pela IA — encerrados" tende a zero e
-  "Em andamento" acumula conversas antigas da IA. Mudar isso é uma decisão de produto ainda não tomada.
+- **Primeira execução do encerramento da IA**: conversas da IA que já estavam paradas além do prazo são encerradas no
+  primeiro ciclo do worker após a atualização, com o **horário real** desse encerramento (nunca retroativo). Por isso,
+  no dia da atualização, "Encerrados por inatividade" pode ter um pico com conversas antigas.
+- **Mensagem ainda na fila do webhook** (recebida pela Meta, mas não processada) não é visível ao encerramento: se ele
+  acontecer antes do processamento (segundos), a mensagem reabre o atendimento num ciclo novo, como se o cliente
+  tivesse voltado a escrever.
+- **IA desligada ou fora do horário**: conversas no modo IA sem resposta também são encerradas pelo prazo da IA (o
+  critério é o modo, não se a IA respondeu); no Analytics aparecem como "sem resposta", encerradas.
 - **Analytics**: dados anteriores à Fase 6 só têm o ciclo atual de cada conversa (reaberturas antigas não foram
   registradas) e não entram nas médias de tempo; consumo antigo da IA aparece como "origem não verificada".
 - **Fuso da empresa** (`Company.timezone`) existe no banco, mas ainda não é editável pelo painel (padrão

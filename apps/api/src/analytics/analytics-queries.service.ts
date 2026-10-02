@@ -55,6 +55,7 @@ function classified(window: ReportWindow, companyId: Scope): Prisma.Sql {
 interface CycleRow {
   started: number;
   aiOnlyClosed: number;
+  aiOnlyClosedInactivity: number;
   aiOnlyOpen: number;
   withHuman: number;
   awaitingHuman: number;
@@ -79,6 +80,7 @@ export class AnalyticsQueriesService {
     const [row] = await this.prisma.$queryRaw<CycleRow[]>`
       SELECT count(*)::int AS "started",
              count(*) FILTER (WHERE c."ai" AND NOT c."queued" AND NOT c."human" AND c."closed")::int AS "aiOnlyClosed",
+             count(*) FILTER (WHERE c."ai" AND NOT c."queued" AND NOT c."human" AND c."closed" AND c."closeReason" = 'INACTIVITY')::int AS "aiOnlyClosedInactivity",
              count(*) FILTER (WHERE c."ai" AND NOT c."queued" AND NOT c."human" AND NOT c."closed")::int AS "aiOnlyOpen",
              count(*) FILTER (WHERE c."human")::int AS "withHuman",
              count(*) FILTER (WHERE c."queued" AND NOT c."human")::int AS "awaitingHuman",
@@ -98,6 +100,7 @@ export class AnalyticsQueriesService {
       cycles: {
         started: int(r.started),
         aiOnlyClosed: int(r.aiOnlyClosed),
+        aiOnlyClosedInactivity: int(r.aiOnlyClosedInactivity),
         aiOnlyOpen: int(r.aiOnlyOpen),
         withHuman: int(r.withHuman),
         awaitingHuman: int(r.awaitingHuman),

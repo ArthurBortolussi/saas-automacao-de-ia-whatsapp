@@ -69,6 +69,8 @@ export interface CycleBreakdown {
   started: number;
   /** Passou pela IA, sem transferência e sem participação humana, e já foi encerrado. */
   aiOnlyClosed: number;
+  /** Destes, quantos foram encerrados por inatividade (não indica que o problema foi resolvido). */
+  aiOnlyClosedInactivity: number;
   /** Passou pela IA, sem transferência e sem participação humana, ainda em andamento. */
   aiOnlyOpen: number;
   /** Teve participação efetiva de pelo menos um funcionário (atribuição ou mensagem). */

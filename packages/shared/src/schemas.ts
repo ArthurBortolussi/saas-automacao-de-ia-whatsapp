@@ -344,6 +344,12 @@ const aiCompanyFields = {
     .transform((days) => [...new Set(days)].sort((a, b) => a - b)),
   scheduleStart: timeSchema,
   scheduleEnd: timeSchema,
+  // Mesmos limites do prazo da equipe (5 minutos a 30 dias).
+  inactivityTimeoutMinutes: z
+    .number({ error: "Informe o tempo." })
+    .int("Use minutos inteiros.")
+    .min(MIN_INACTIVITY_TIMEOUT_MINUTES, `Mínimo de ${MIN_INACTIVITY_TIMEOUT_MINUTES} minutos.`)
+    .max(MAX_INACTIVITY_TIMEOUT_MINUTES, "Máximo de 30 dias."),
 };
 
 const companyAiShape = {
@@ -356,6 +362,7 @@ const companyAiShape = {
   scheduleDays: aiCompanyFields.scheduleDays.optional(),
   scheduleStart: aiCompanyFields.scheduleStart.optional(),
   scheduleEnd: aiCompanyFields.scheduleEnd.optional(),
+  inactivityTimeoutMinutes: aiCompanyFields.inactivityTimeoutMinutes.optional(),
 };
 
 const nonEmpty = { message: "Nada para atualizar." };

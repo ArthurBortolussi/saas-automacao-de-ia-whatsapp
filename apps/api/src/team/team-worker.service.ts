@@ -6,7 +6,8 @@ import { DistributionService } from "./distribution.service.js";
 /**
  * Atendimento humano em segundo plano, no processo da API (sem Redis): a cada ciclo, (1) distribui a fila das
  * empresas com conversas aguardando — o que também recupera tudo o que ficou pendente após um reinício, porque
- * a fila está gravada nas conversas —, (2) envia os avisos de espera pendentes e (3) encerra atendimentos inativos.
+ * a fila está gravada nas conversas —, (2) envia os avisos de espera pendentes e (3) encerra atendimentos inativos
+ * (humanos pelo prazo da equipe; só com a IA pelo prazo da IA).
  * O evento em memória só antecipa o ciclo.
  */
 @Injectable()
@@ -62,6 +63,7 @@ export class TeamWorker implements OnModuleInit, OnModuleDestroy {
       for (const companyId of await this.distribution.companiesWithQueue()) work += await this.distribution.distribute(companyId);
       work += await this.distribution.sendQueueNotices();
       work += await this.distribution.closeInactive();
+      work += await this.distribution.closeInactiveAi();
       return work;
     } catch (error) {
       this.logger.error(`Ciclo do worker da equipe falhou: ${error instanceof Error ? error.message : String(error)}`);

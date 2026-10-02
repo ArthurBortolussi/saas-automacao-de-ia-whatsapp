@@ -3,6 +3,8 @@ export const DEFAULT_HANDOFF_MESSAGE =
   "Vou encaminhar seu atendimento para um de nossos atendentes. Assim que possível, alguém continuará a conversa.";
 
 export const DEFAULT_AI_TIMEZONE = "America/Sao_Paulo";
+/** Prazo padrão de inatividade dos atendimentos só com a IA (independente do prazo da equipe). */
+export const DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES = 240;
 
 /** Limites da base de conhecimento por empresa. */
 export const KNOWLEDGE_TITLE_MAX = 160;

@@ -50,6 +50,7 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
       handoffMessage: form.get("handoffMessage"),
       alwaysOn: form.get("alwaysOn") === "on",
       timezone: form.get("timezone"),
+      inactivityTimeoutMinutes: Number(form.get("inactivityTimeoutMinutes")),
       // Em 24 horas, dias e horários ficam como estavam (não precisam ser válidos agora).
       ...(form.get("alwaysOn") === "on"
         ? {}
@@ -187,6 +188,25 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
             ))}
           </datalist>
         </div>
+      </fieldset>
+
+      <fieldset className="space-y-3 rounded-md border p-4" disabled={readOnly}>
+        <legend className="px-1 text-sm font-medium">Encerramento automático</legend>
+        <p className="text-xs text-muted-foreground">
+          Atendimentos que estão só com a IA são finalizados depois deste tempo sem mensagens. Se o cliente voltar a escrever, o atendimento
+          reabre na mesma conversa. Não vale para atendimentos da equipe nem para conversas pausadas (o prazo da equipe fica na aba Equipe).
+        </p>
+        <Field id="inactivityTimeoutMinutes" label="Minutos sem atividade" error={errors["inactivityTimeoutMinutes"]} hint="Padrão: 240 minutos (4 horas). Mínimo 5, máximo 30 dias.">
+          <Input
+            id="inactivityTimeoutMinutes"
+            name="inactivityTimeoutMinutes"
+            type="number"
+            min={5}
+            max={43200}
+            defaultValue={settings.inactivityTimeoutMinutes}
+            className="w-40"
+          />
+        </Field>
       </fieldset>
 
       {readOnly ? (

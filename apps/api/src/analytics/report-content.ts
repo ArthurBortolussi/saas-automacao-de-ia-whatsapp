@@ -61,6 +61,12 @@ function operationalSections(report: AnyReport): ReportSection[] {
       rows: [
         { label: "Atendimentos iniciados", value: cycles.started, kind: "count" },
         { label: "Atendidos somente pela IA (encerrados)", value: cycles.aiOnlyClosed, kind: "count" },
+        {
+          label: "Somente pela IA, encerrados por inatividade",
+          value: cycles.aiOnlyClosedInactivity,
+          kind: "count",
+          note: "O cliente parou de responder; não indica que o problema foi resolvido.",
+        },
         { label: "Atendidos somente pela IA (em andamento)", value: cycles.aiOnlyOpen, kind: "count" },
         { label: "Com atendimento humano", value: cycles.withHuman, kind: "count" },
         { label: "Aguardando atendimento humano", value: cycles.awaitingHuman, kind: "count", note: "Entraram na fila e ainda não foram atendidos por um funcionário." },

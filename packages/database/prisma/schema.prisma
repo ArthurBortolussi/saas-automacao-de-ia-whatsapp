@@ -450,6 +450,9 @@ model AiSettings {
   scheduleDays            Int[]            @default([1, 2, 3, 4, 5])
   scheduleStart           String           @default("08:00") @db.Char(5)
   scheduleEnd             String           @default("18:00") @db.Char(5)
+  // Pós-Fase 6: atendimento só com a IA (modo AI) sem atividade por este tempo é encerrado automaticamente.
+  // Independente do prazo humano (TeamSettings.inactivityTimeoutMinutes).
+  inactivityTimeoutMinutes Int             @default(240)
   createdAt               DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt               DateTime         @updatedAt @db.Timestamptz(3)
 

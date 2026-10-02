@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type { AiTone, Company, CompanyMember, ConversationMode, Prisma, User } from "@arthur-ai/database";
 import {
+  DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES,
   DEFAULT_AI_TIMEZONE,
   DEFAULT_HANDOFF_MESSAGE,
   isWithinAiSchedule,
@@ -26,6 +27,7 @@ export interface ResolvedAiSettings {
   scheduleDays: number[];
   scheduleStart: string;
   scheduleEnd: string;
+  inactivityTimeoutMinutes: number;
   updatedAt: Date | null;
 }
 
@@ -42,6 +44,7 @@ export const DEFAULT_AI_SETTINGS: ResolvedAiSettings = {
   scheduleDays: [1, 2, 3, 4, 5],
   scheduleStart: "08:00",
   scheduleEnd: "18:00",
+  inactivityTimeoutMinutes: DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES,
   updatedAt: null,
 };
 
@@ -74,6 +77,7 @@ export class AiSettingsService {
       scheduleDays: settings.scheduleDays,
       scheduleStart: settings.scheduleStart,
       scheduleEnd: settings.scheduleEnd,
+      inactivityTimeoutMinutes: settings.inactivityTimeoutMinutes,
       updatedAt: settings.updatedAt?.toISOString() ?? null,
     };
   }
@@ -136,6 +140,7 @@ export class AiSettingsService {
       scheduleDays: merged.scheduleDays,
       scheduleStart: merged.scheduleStart,
       scheduleEnd: merged.scheduleEnd,
+      inactivityTimeoutMinutes: merged.inactivityTimeoutMinutes,
     };
     await this.prisma.$transaction(async (tx) => {
       await tx.aiSettings.upsert({ where: { companyId: company.id }, create: { companyId: company.id, ...values }, update: values });
@@ -151,6 +156,7 @@ export class AiSettingsService {
             fields: Object.keys(definedOnly(data)),
             ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
             ...(data.defaultConversationMode ? { defaultConversationMode: data.defaultConversationMode } : {}),
+            ...(data.inactivityTimeoutMinutes !== undefined ? { inactivityTimeoutMinutes: data.inactivityTimeoutMinutes } : {}),
           },
         },
         tx,

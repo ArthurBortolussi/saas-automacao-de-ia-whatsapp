@@ -16,7 +16,7 @@ import type {
   Prisma,
   User,
 } from "@arthur-ai/database";
-import { isServiceWindowOpen, QUEUE_WAITING_MESSAGE, type EligibleAssignee } from "@arthur-ai/shared";
+import { DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES, isServiceWindowOpen, QUEUE_WAITING_MESSAGE, type EligibleAssignee } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { closeCycle, markAssigned, markQueued } from "../analytics/cycle-tracker.js";
@@ -319,6 +319,45 @@ export class DistributionService {
       }
     }
     for (const companyId of companies) await this.distribute(companyId);
+    return closed;
+  }
+
+  /**
+   * Encerramento automático dos atendimentos SÓ com a IA (modo AI, estado OPEN), pelo prazo da IA de cada empresa
+   * (AiSettings.inactivityTimeoutMinutes; sem linha = 4 h). Conversas HUMAN/PAUSED nunca entram aqui. Não encerra se
+   * houver mensagem sendo enviada ou tarefa da IA pendente/em geração (a resposta ainda pode sair). Mesma garantia do
+   * encerramento humano: a gravação é condicional à última atividade lida, ao modo AI e ao estado OPEN; uma mensagem
+   * do cliente que chega no meio trava a linha e atualiza a atividade, então nada é encerrado. O horário gravado é o
+   * do encerramento real (conversas paradas há muito tempo não recebem horário retroativo).
+   */
+  async closeInactiveAi(limit = 50): Promise<number> {
+    const candidates = await this.prisma.$queryRaw<{ id: string; companyId: string; lastActivityAt: Date }[]>`
+      SELECT c."id", c."companyId", c."lastActivityAt"
+        FROM "Conversation" c
+        LEFT JOIN "AiSettings" s ON s."companyId" = c."companyId"
+       WHERE c."status" = 'OPEN' AND c."mode" = 'AI' AND c."lastActivityAt" IS NOT NULL
+         AND c."lastActivityAt" < now() - make_interval(mins => COALESCE(s."inactivityTimeoutMinutes", ${DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES}))
+         AND NOT EXISTS (SELECT 1 FROM "Message" m WHERE m."conversationId" = c."id" AND m."deliveryStatus" = 'PENDING')
+         AND NOT EXISTS (SELECT 1 FROM "AiReplyTask" t WHERE t."conversationId" = c."id" AND t."status" IN ('PENDING', 'RUNNING'))
+       ORDER BY c."lastActivityAt"
+       LIMIT ${limit}`;
+    let closed = 0;
+    for (const candidate of candidates) {
+      const done = await this.prisma.$transaction(async (tx) => {
+        await lockCompanyTeam(tx, candidate.companyId);
+        // Reavaliado dentro da transação: algo pode ter mudado desde a consulta.
+        const [sending, aiWork] = await Promise.all([
+          tx.message.count({ where: { conversationId: candidate.id, deliveryStatus: "PENDING" } }),
+          tx.aiReplyTask.count({ where: { conversationId: candidate.id, status: { in: ["PENDING", "RUNNING"] } } }),
+        ]);
+        if (sending > 0 || aiWork > 0) return false;
+        return this.closeInTx(tx, candidate.companyId, candidate.id, "OPEN", null, "INACTIVITY", null, {
+          mode: "AI",
+          lastActivityAt: candidate.lastActivityAt,
+        });
+      });
+      if (done) closed += 1;
+    }
     return closed;
   }
 
