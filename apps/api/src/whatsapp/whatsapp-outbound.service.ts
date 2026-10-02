@@ -7,8 +7,14 @@ import { CloudApiClient } from "./cloud-api.client.js";
 import { WhatsAppAccountsService } from "./whatsapp-accounts.service.js";
 import { WhatsAppApiError } from "./whatsapp-errors.js";
 
-/** Quem está enviando. "AI" já é aceito aqui para a Fase 4, sujeito a aiMayReply(). */
-export type OutboundSender = { type: "AGENT"; userId: string } | { type: "AI" };
+/**
+ * Quem está enviando. "AI" sujeito a aiMayReply(). `inTransaction` roda na MESMA transação que grava a
+ * mensagem, depois da checagem do modo: a IA marca ali a tarefa como concluída (e, se for o caso, passa a
+ * conversa para humano). Se lançar erro, nada é gravado nem enviado.
+ */
+export type OutboundSender =
+  | { type: "AGENT"; userId: string }
+  | { type: "AI"; inTransaction?: (tx: Prisma.TransactionClient) => Promise<void> };
 
 const MAX_ATTEMPTS = 5;
 // Enquanto uma tentativa está em curso, a mensagem fica "reservada" por este tempo.
@@ -55,12 +61,19 @@ export class WhatsAppOutboundService {
       this.assertSenderAllowed(sender, conversation.mode);
       if (!isServiceWindowOpen(conversation.lastInboundAt, now)) throw new ConflictException(WINDOW_CLOSED);
 
-      // Condicional: se o modo mudou entre a leitura e aqui, nada é gravado.
+      // Condicional: se o modo mudou entre a leitura e aqui, nada é gravado. Também trava a linha da conversa
+      // até o fim da transação (uma troca de modo concorrente espera ou já foi vista).
       const { count } = await tx.conversation.updateMany({
         where: { id: conversationId, companyId: company.id, mode: conversation.mode },
-        data: { lastMessageAt: now, lastMessagePreview: messagePreview(body), unreadCount: 0 },
+        data: {
+          lastMessageAt: now,
+          lastMessagePreview: messagePreview(body),
+          // Resposta da IA não marca como lidas as mensagens do cliente: a equipe continua vendo o que chegou.
+          ...(sender.type === "AGENT" ? { unreadCount: 0 } : {}),
+        },
       });
       if (count === 0) throw new ConflictException("A conversa foi alterada por outra pessoa. Atualize a página e tente novamente.");
+      if (sender.type === "AI" && sender.inTransaction) await sender.inTransaction(tx);
 
       const message = await tx.message.create({
         data: {

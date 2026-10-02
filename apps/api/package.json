@@ -12,6 +12,7 @@
     "test:e2e": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@arthur-ai/database": "workspace:*",
     "@arthur-ai/shared": "workspace:*",
     "@nestjs/common": "^12.1.2",

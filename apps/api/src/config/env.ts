@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseCookieSecure } from "@arthur-ai/shared";
 import { z } from "zod";
+import { aiEnvSchema, buildAiConfig, type AiConfig } from "./ai-config.js";
 import { buildWhatsAppConfig, whatsappEnvSchema, type WhatsAppConfig } from "./whatsapp-config.js";
 
 const trustProxySchema = z
@@ -25,12 +26,14 @@ const envSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24 * 90).default(168),
   TRUST_PROXY: trustProxySchema,
   SESSION_COOKIE_SECURE: z.enum(["true", "false"]).optional(),
-}).extend(whatsappEnvSchema.shape);
+}).extend(whatsappEnvSchema.shape).extend(aiEnvSchema.shape);
 
 type ParsedEnv = z.output<typeof envSchema>;
 // Segredos do WhatsApp ficam só em `whatsapp`; os campos crus não são expostos no Env.
 type RawWhatsAppKeys = "WHATSAPP_APP_SECRET" | "WHATSAPP_WEBHOOK_VERIFY_TOKEN" | "WHATSAPP_TOKEN_ENCRYPTION_KEY";
-export type Env = Omit<ParsedEnv, RawWhatsAppKeys> & { cookieSecure: boolean; whatsapp: WhatsAppConfig };
+// A chave da Anthropic também fica só em `ai`.
+type RawAiKeys = "ANTHROPIC_API_KEY";
+export type Env = Omit<ParsedEnv, RawWhatsAppKeys | RawAiKeys> & { cookieSecure: boolean; whatsapp: WhatsAppConfig; ai: AiConfig };
 export const ENV = Symbol("ENV");
 
 let rootEnvLoaded = false;
@@ -51,13 +54,15 @@ export function loadEnv(): Env {
   if (result.data.NODE_ENV === "production" && !cookieSecure) {
     throw new Error("Variáveis de ambiente inválidas:\n  - SESSION_COOKIE_SECURE: deve ser true em produção.");
   }
-  const { WHATSAPP_APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_TOKEN_ENCRYPTION_KEY, ...rest } = result.data;
+  const { WHATSAPP_APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_TOKEN_ENCRYPTION_KEY, ANTHROPIC_API_KEY, ...rest } = result.data;
   const { config: whatsapp, errors } = buildWhatsAppConfig(
     { ...result.data, WHATSAPP_APP_SECRET, WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_TOKEN_ENCRYPTION_KEY },
     result.data.NODE_ENV,
   );
+  const { config: ai, errors: aiErrors } = buildAiConfig({ ...result.data, ANTHROPIC_API_KEY }, result.data.NODE_ENV);
+  errors.push(...aiErrors);
   if (errors.length > 0) {
     throw new Error(`Variáveis de ambiente inválidas:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
   }
-  return { ...rest, cookieSecure, whatsapp };
+  return { ...rest, cookieSecure, whatsapp, ai };
 }

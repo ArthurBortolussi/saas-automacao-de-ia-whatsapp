@@ -92,6 +92,10 @@ model Company {
   messages        Message[]
   whatsappAccount WhatsAppAccount?
   webhookEvents   WhatsAppWebhookEvent[]
+  aiSettings      AiSettings?
+  knowledge       KnowledgeEntry[]
+  aiReplyTasks    AiReplyTask[]
+  aiRuns          AiRun[]
 
   @@index([status])
 }
@@ -212,15 +216,20 @@ model Conversation {
   unreadCount        Int                 @default(0)
   // Última mensagem do cliente: base da janela de atendimento de 24h do WhatsApp.
   lastInboundAt      DateTime?           @db.Timestamptz(3)
+  // Fase 4: última passagem automática da IA para humano (motivo e quando).
+  aiHandoffReason    AiHandoffReason?
+  aiHandoffAt        DateTime?           @db.Timestamptz(3)
   createdAt          DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
 
-  company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // FK composta: o contato precisa ser da MESMA empresa da conversa (garantido pelo banco).
-  contact      Contact   @relation(fields: [contactId, companyId], references: [id, companyId], onDelete: Restrict)
+  contact      Contact       @relation(fields: [contactId, companyId], references: [id, companyId], onDelete: Restrict)
   // SetNull: remover o usuário não apaga o atendimento, só o responsável.
-  assignedUser User?     @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedUser User?         @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
   messages     Message[]
+  aiReplyTasks AiReplyTask[]
+  aiRuns       AiRun[]
 
   @@unique([id, companyId])
   @@index([companyId, lastMessageAt])
@@ -253,12 +262,15 @@ model Message {
   errorMessage      String?                @db.VarChar(500)
   createdAt         DateTime               @default(now()) @db.Timestamptz(3)
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // FK composta: a mensagem pertence à MESMA empresa da conversa.
-  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
-  sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  conversation Conversation  @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  sender       User?         @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  aiReplyTasks AiReplyTask[]
 
   @@unique([companyId, externalId])
+  // Alvo da FK composta de AiReplyTask (Fase 4).
+  @@unique([id, companyId])
   @@index([conversationId, createdAt])
   @@index([deliveryStatus, nextSendAttemptAt])
 }
@@ -339,4 +351,137 @@ model WhatsAppWebhookEvent {
 
   @@index([status, nextAttemptAt])
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------- FASE 4
+
+enum AiTone {
+  FORMAL
+  PROFESSIONAL
+  FRIENDLY
+}
+
+/// Por que a IA passou a conversa para um humano.
+enum AiHandoffReason {
+  CUSTOMER_REQUEST
+  MISSING_INFORMATION
+  MODEL_REFUSAL
+  INCOMPLETE_RESPONSE
+  AI_ERROR
+  UNSUPPORTED_CONTENT
+  CONVERSATION_LIMIT
+}
+
+/// PENDING: aguardando o agrupamento. RUNNING: em geração. DONE: atendida (resposta ou passagem).
+/// SKIPPED: não exigia/permitia resposta. CANCELED: invalidada (ex.: humano assumiu). FAILED: erro definitivo.
+enum AiTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  SKIPPED
+  CANCELED
+  FAILED
+}
+
+enum AiRunResult {
+  REPLIED
+  HANDOFF
+  DISCARDED
+  ERROR
+}
+
+/// Configuração da IA por empresa. Sem linha = valores padrão (IA desligada).
+model AiSettings {
+  companyId               String           @id @db.Uuid
+  enabled                 Boolean          @default(false)
+  // Modo em que nascem as NOVAS conversas do WhatsApp; conversas existentes não mudam.
+  defaultConversationMode ConversationMode @default(AI)
+  assistantName           String           @default("Assistente") @db.VarChar(60)
+  tone                    AiTone           @default(PROFESSIONAL)
+  instructions            String?          @db.VarChar(4000)
+  handoffMessage          String?          @db.VarChar(1000)
+  // Horário em que a IA pode responder (não é o horário de funcionamento da empresa).
+  alwaysOn                Boolean          @default(true)
+  timezone                String           @default("America/Sao_Paulo") @db.VarChar(64)
+  // 0 = domingo ... 6 = sábado.
+  scheduleDays            Int[]            @default([1, 2, 3, 4, 5])
+  scheduleStart           String           @default("08:00") @db.Char(5)
+  scheduleEnd             String           @default("18:00") @db.Char(5)
+  createdAt               DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime         @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+/// Base de conhecimento: textos cadastrados pela empresa que a IA pode consultar.
+model KnowledgeEntry {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  companyId String   @db.Uuid
+  title     String   @db.VarChar(160)
+  content   String   @db.VarChar(10000)
+  category  String?  @db.VarChar(60)
+  active    Boolean  @default(true)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([id, companyId])
+  @@index([companyId, active, position])
+}
+
+/// Fila persistente da IA: uma tarefa por mensagem recebida (idempotência por messageId),
+/// criada na MESMA transação que grava a mensagem. Tarefas da mesma conversa são agrupadas num lote (runId).
+model AiReplyTask {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  companyId      String       @db.Uuid
+  conversationId String       @db.Uuid
+  messageId      String       @unique @db.Uuid
+  status         AiTaskStatus @default(PENDING)
+  runId          String?      @db.Uuid
+  attempts       Int          @default(0)
+  nextAttemptAt  DateTime     @default(now()) @db.Timestamptz(3)
+  lockedUntil    DateTime?    @db.Timestamptz(3)
+  // Motivo técnico do estado final (ex.: OUTSIDE_SCHEDULE, MODE_CHANGED). Sem dados de clientes.
+  outcome        String?      @db.VarChar(40)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  finishedAt     DateTime?    @db.Timestamptz(3)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+  message      Message      @relation(fields: [messageId, companyId], references: [id, companyId], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@index([conversationId, status])
+  @@index([runId])
+}
+
+/// Uma chamada ao modelo: consumo e resultado (base da aba Uso).
+model AiRun {
+  id                       String           @id @db.Uuid
+  companyId                String           @db.Uuid
+  conversationId           String           @db.Uuid
+  model                    String           @db.VarChar(80)
+  result                   AiRunResult
+  stopReason               String?          @db.VarChar(40)
+  handoffReason            AiHandoffReason?
+  errorType                String?          @db.VarChar(60)
+  // Nulos quando a API não devolveu consumo (ex.: erro antes da resposta).
+  inputTokens              Int?
+  outputTokens             Int?
+  cacheCreationInputTokens Int?
+  cacheReadInputTokens     Int?
+  // Estimativa em USD pela tabela de preços configurada; nulo = consumo ou preço desconhecido.
+  costUsd                  Decimal?         @db.Decimal(12, 6)
+  latencyMs                Int?
+  // Quantas mensagens do cliente foram agrupadas nesta resposta.
+  messageCount             Int
+  createdAt                DateTime         @default(now()) @db.Timestamptz(3)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+
+  @@index([companyId, createdAt])
+  @@index([conversationId])
 }

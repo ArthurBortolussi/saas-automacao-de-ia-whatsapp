@@ -1,4 +1,8 @@
 import type {
+  AiHandoffReason as SharedAiHandoffReason,
+  AiRunResult as SharedAiRunResult,
+  AiTaskStatus as SharedAiTaskStatus,
+  AiTone as SharedAiTone,
   ConversationChannel as SharedConversationChannel,
   MessageDeliveryStatus as SharedMessageDeliveryStatus,
   WebhookEventStatus as SharedWebhookEventStatus,
@@ -14,6 +18,10 @@ import type {
   UserStatus as SharedUserStatus,
 } from "@arthur-ai/shared";
 import type {
+  AiHandoffReason,
+  AiRunResult,
+  AiTaskStatus,
+  AiTone,
   CompanyStatus,
   ContactSource,
   ContactStatus,
@@ -47,4 +55,8 @@ export type EnumParity = [
   Assert<Equals<MessageDeliveryStatus, SharedMessageDeliveryStatus>>,
   Assert<Equals<WhatsAppAccountStatus, SharedWhatsAppAccountStatus>>,
   Assert<Equals<WebhookEventStatus, SharedWebhookEventStatus>>,
+  Assert<Equals<AiTone, SharedAiTone>>,
+  Assert<Equals<AiHandoffReason, SharedAiHandoffReason>>,
+  Assert<Equals<AiTaskStatus, SharedAiTaskStatus>>,
+  Assert<Equals<AiRunResult, SharedAiRunResult>>,
 ];

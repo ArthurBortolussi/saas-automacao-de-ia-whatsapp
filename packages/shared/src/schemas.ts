@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { isValidCnpj, normalizeCnpj } from "./cnpj.js";
+import { AI_TIME_PATTERN, isValidTimeZone, KNOWLEDGE_CONTENT_MAX, KNOWLEDGE_TITLE_MAX } from "./ai-rules.js";
 import { CONVERSATION_ACTIONS } from "./conversation-rules.js";
-import { BRAZILIAN_STATES, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
+import { AI_TONES, BRAZILIAN_STATES, type ConversationMode, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
 import { normalizePhone } from "./phone.js";
 
 // Mensagens padrão do Zod em português (usadas quando o schema não define mensagem própria).
@@ -268,3 +269,102 @@ export const whatsappAccountActionSchema = strictObject({
   action: z.enum(WHATSAPP_ACCOUNT_ACTIONS, { error: "Ação inválida." }),
 });
 export type WhatsAppAccountAction = (typeof WHATSAPP_ACCOUNT_ACTIONS)[number];
+
+// ---------------------------------------------------------------- FASE 4
+
+const knowledgeFields = {
+  title: text("o título", 2, KNOWLEDGE_TITLE_MAX),
+  content: text("o conteúdo", 2, KNOWLEDGE_CONTENT_MAX),
+  category: z.string().trim().max(60, "Máximo de 60 caracteres."),
+  active: z.boolean({ error: "Valor inválido." }),
+  position: z.number({ error: "Ordem inválida." }).int("Ordem inválida.").min(0, "Ordem inválida.").max(100_000, "Ordem inválida."),
+};
+
+export const createKnowledgeEntrySchema = strictObject({
+  title: knowledgeFields.title,
+  content: knowledgeFields.content,
+  category: optional(knowledgeFields.category),
+  active: knowledgeFields.active.default(true),
+  position: knowledgeFields.position.default(0),
+});
+export type CreateKnowledgeEntryInput = z.input<typeof createKnowledgeEntrySchema>;
+export type CreateKnowledgeEntryData = z.output<typeof createKnowledgeEntrySchema>;
+
+export const updateKnowledgeEntrySchema = strictObject({
+  title: knowledgeFields.title.optional(),
+  content: knowledgeFields.content.optional(),
+  category: clearable(knowledgeFields.category),
+  active: knowledgeFields.active.optional(),
+  position: knowledgeFields.position.optional(),
+}).refine((data) => Object.keys(data).length > 0, { message: "Nada para atualizar." });
+export type UpdateKnowledgeEntryInput = z.input<typeof updateKnowledgeEntrySchema>;
+export type UpdateKnowledgeEntryData = z.output<typeof updateKnowledgeEntrySchema>;
+
+export const KNOWLEDGE_STATUS_FILTERS = ["all", "active", "inactive"] as const;
+export type KnowledgeStatusFilter = (typeof KNOWLEDGE_STATUS_FILTERS)[number];
+
+export const listKnowledgeQuerySchema = strictObject({
+  q: optional(z.string().trim().max(100, "Busca muito longa.")),
+  status: z.enum(KNOWLEDGE_STATUS_FILTERS, { error: "Filtro inválido." }).default("all"),
+  ...pageFields,
+});
+export type ListKnowledgeQuery = z.output<typeof listKnowledgeQuerySchema>;
+
+export const DEFAULT_CONVERSATION_MODES = ["AI", "HUMAN"] as const satisfies readonly ConversationMode[];
+
+const timeSchema = z.string({ error: "Informe o horário." }).regex(AI_TIME_PATTERN, "Use o formato HH:MM (ex.: 08:00).");
+
+/** Campos que o proprietário/administrador da empresa pode editar (o SUPERADMIN também). */
+const aiCompanyFields = {
+  assistantName: text("o nome do assistente", 2, 60),
+  tone: z.enum(AI_TONES, { error: "Tom inválido." }),
+  instructions: clearable(z.string().trim().max(4000, "Máximo de 4000 caracteres.")),
+  handoffMessage: clearable(z.string().trim().max(1000, "Máximo de 1000 caracteres.")),
+  alwaysOn: z.boolean({ error: "Valor inválido." }),
+  timezone: z
+    .string({ error: "Informe o fuso horário." })
+    .trim()
+    .min(1, "Informe o fuso horário.")
+    .max(64, "Fuso horário inválido.")
+    .refine(isValidTimeZone, "Fuso horário inválido (use o formato IANA, ex.: America/Sao_Paulo)."),
+  scheduleDays: z
+    .array(z.number().int().min(0).max(6), { error: "Dias inválidos." })
+    .min(1, "Escolha ao menos um dia.")
+    .max(7, "Dias inválidos.")
+    .transform((days) => [...new Set(days)].sort((a, b) => a - b)),
+  scheduleStart: timeSchema,
+  scheduleEnd: timeSchema,
+};
+
+const companyAiShape = {
+  assistantName: aiCompanyFields.assistantName.optional(),
+  tone: aiCompanyFields.tone.optional(),
+  instructions: aiCompanyFields.instructions,
+  handoffMessage: aiCompanyFields.handoffMessage,
+  alwaysOn: aiCompanyFields.alwaysOn.optional(),
+  timezone: aiCompanyFields.timezone.optional(),
+  scheduleDays: aiCompanyFields.scheduleDays.optional(),
+  scheduleStart: aiCompanyFields.scheduleStart.optional(),
+  scheduleEnd: aiCompanyFields.scheduleEnd.optional(),
+};
+
+const nonEmpty = { message: "Nada para atualizar." };
+
+/** Rota da empresa: campos técnicos (ligar a IA, modo padrão) são rejeitados como desconhecidos. */
+export const updateCompanyAiSettingsSchema = strictObject(companyAiShape).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateCompanyAiSettingsInput = z.input<typeof updateCompanyAiSettingsSchema>;
+
+/** Rota do SUPERADMIN: tudo o que a empresa edita + ligar/desligar e modo padrão das novas conversas. */
+export const updateAdminAiSettingsSchema = strictObject({
+  ...companyAiShape,
+  enabled: z.boolean({ error: "Valor inválido." }).optional(),
+  // Pausado não faz sentido como modo inicial: só IA ou humano.
+  defaultConversationMode: z.enum(DEFAULT_CONVERSATION_MODES, { error: "Modo inválido." }).optional(),
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateAdminAiSettingsInput = z.input<typeof updateAdminAiSettingsSchema>;
+export type UpdateAiSettingsData = z.output<typeof updateAdminAiSettingsSchema>;
+
+export const aiUsageQuerySchema = strictObject({
+  days: z.coerce.number().int().min(1).max(366).default(30),
+});
+export type AiUsageQuery = z.output<typeof aiUsageQuerySchema>;

@@ -36,7 +36,7 @@ export async function createTestApp(rateLimit: LoginRateLimitOptions = RELAXED_R
 
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "WhatsAppWebhookEvent", "WhatsAppAccount", "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "AiRun", "AiReplyTask", "KnowledgeEntry", "AiSettings", "WhatsAppWebhookEvent", "WhatsAppAccount", "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
   );
 }
 

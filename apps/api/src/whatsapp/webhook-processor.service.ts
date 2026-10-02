@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Prisma, type MessageDeliveryStatus, type WhatsAppAccount } from "@arthur-ai/database";
+import { Prisma, type ConversationMode, type MessageDeliveryStatus, type WhatsAppAccount } from "@arthur-ai/database";
+import { aiMayReply } from "@arthur-ai/shared";
 import { uniqueViolationIndex } from "../common/prisma-errors.js";
 import { messagePreview } from "../conversations/conversation.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -60,6 +61,11 @@ function contactName(profileName: string | undefined, waId: string): string {
   // Nome vem do perfil do cliente (dado externo): remove controles e limita o tamanho.
   const clean = profileName?.replace(/[\p{Cc}\p{Cf}]/gu, "").trim().slice(0, 120);
   return clean && clean.length >= 1 ? clean : `+${waId}`;
+}
+
+async function defaultConversationMode(tx: Prisma.TransactionClient, companyId: string): Promise<ConversationMode> {
+  const settings = await tx.aiSettings.findUnique({ where: { companyId }, select: { defaultConversationMode: true } });
+  return settings?.defaultConversationMode ?? "AI";
 }
 
 @Injectable()
@@ -137,8 +143,13 @@ export class WebhookProcessorService {
           (await tx.conversation.findFirst({
             where: { companyId, contactId: contact.id, channel: "WHATSAPP" },
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            select: { id: true },
-          })) ?? (await tx.conversation.create({ data: { companyId, contactId: contact.id, channel: "WHATSAPP" }, select: { id: true } }));
+            select: { id: true, mode: true },
+          })) ??
+          (await tx.conversation.create({
+            // Fase 4: conversa nova nasce no modo padrão configurado para a empresa (sem configuração: IA).
+            data: { companyId, contactId: contact.id, channel: "WHATSAPP", mode: await defaultConversationMode(tx, companyId) },
+            select: { id: true, mode: true },
+          }));
 
         const row = await tx.message.create({
           data: {
@@ -163,6 +174,11 @@ export class WebhookProcessorService {
           where: { id: conversation.id, OR: [{ lastInboundAt: null }, { lastInboundAt: { lt: at } }] },
           data: { lastInboundAt: at },
         });
+        // Fase 4: tarefa da IA gravada junto com a mensagem (persistente; sobrevive a quedas da API).
+        // Só em modo IA: mensagens recebidas com humano ou pausa nunca geram resposta automática depois.
+        if (aiMayReply(conversation.mode)) {
+          await tx.aiReplyTask.create({ data: { companyId, conversationId: conversation.id, messageId: row.id } });
+        }
         return { conversationId: conversation.id, messageId: row.id };
       });
     } catch (error) {

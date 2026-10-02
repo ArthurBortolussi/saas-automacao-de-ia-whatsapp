@@ -1,4 +1,5 @@
 export * from "./cnpj.js";
+export * from "./ai-rules.js";
 export * from "./conversation-rules.js";
 export * from "./enums.js";
 export * from "./phone.js";

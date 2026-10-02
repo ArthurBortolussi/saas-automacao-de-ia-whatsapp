@@ -207,6 +207,12 @@ export class ConversationsService {
         data,
       });
       if (count === 0) throw new ConflictException(CONCURRENT_CHANGE);
+      // Fase 4: qualquer troca de modo invalida o trabalho pendente da IA nesta conversa. Uma resposta em
+      // geração não é enviada: o envio exige a tarefa ainda RUNNING, conferida na mesma transação da mensagem.
+      await tx.aiReplyTask.updateMany({
+        where: { conversationId, companyId: company.id, status: { in: ["PENDING", "RUNNING"] } },
+        data: { status: "CANCELED", outcome: "MODE_CHANGED", lockedUntil: null, finishedAt: new Date() },
+      });
       await this.audit.record(
         {
           action: AUDIT_ACTIONS.CONVERSATION_MODE_CHANGED,
@@ -226,12 +232,13 @@ export class ConversationsService {
     action: ConversationAction,
     current: { mode: ConversationMode; modeBeforePause: ConversationMode | null; assignedUserId: string | null },
     actor: User,
-  ): { mode: ConversationMode; modeBeforePause: ConversationMode | null; assignedUserId?: string | null } {
+  ): { mode: ConversationMode; modeBeforePause: ConversationMode | null; assignedUserId?: string | null; aiHandoffReason?: null; aiHandoffAt?: null } {
     switch (action) {
       case "ASSUME":
         return { mode: "HUMAN", modeBeforePause: null, assignedUserId: actor.id };
       case "RETURN_TO_AI":
-        return { mode: "AI", modeBeforePause: null, assignedUserId: null };
+        // Devolvida à IA: o aviso da última passagem automática deixa de valer.
+        return { mode: "AI", modeBeforePause: null, assignedUserId: null, aiHandoffReason: null, aiHandoffAt: null };
       case "PAUSE":
         return { mode: "PAUSED", modeBeforePause: current.mode };
       case "RESUME": {

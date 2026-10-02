@@ -48,3 +48,25 @@ export type WhatsAppAccountStatus = (typeof WHATSAPP_ACCOUNT_STATUSES)[number];
 
 export const WEBHOOK_EVENT_STATUSES = ["PENDING", "PROCESSED", "IGNORED", "FAILED"] as const;
 export type WebhookEventStatus = (typeof WEBHOOK_EVENT_STATUSES)[number];
+
+// ---------------------------------------------------------------- FASE 4
+
+export const AI_TONES = ["FORMAL", "PROFESSIONAL", "FRIENDLY"] as const;
+export type AiTone = (typeof AI_TONES)[number];
+
+export const AI_HANDOFF_REASONS = [
+  "CUSTOMER_REQUEST",
+  "MISSING_INFORMATION",
+  "MODEL_REFUSAL",
+  "INCOMPLETE_RESPONSE",
+  "AI_ERROR",
+  "UNSUPPORTED_CONTENT",
+  "CONVERSATION_LIMIT",
+] as const;
+export type AiHandoffReason = (typeof AI_HANDOFF_REASONS)[number];
+
+export const AI_TASK_STATUSES = ["PENDING", "RUNNING", "DONE", "SKIPPED", "CANCELED", "FAILED"] as const;
+export type AiTaskStatus = (typeof AI_TASK_STATUSES)[number];
+
+export const AI_RUN_RESULTS = ["REPLIED", "HANDOFF", "DISCARDED", "ERROR"] as const;
+export type AiRunResult = (typeof AI_RUN_RESULTS)[number];

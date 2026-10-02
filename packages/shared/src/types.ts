@@ -11,6 +11,9 @@ import type {
   MessageDirection,
   MessageSenderType,
   UserStatus,
+  AiHandoffReason,
+  AiRunResult,
+  AiTone,
 } from "./enums.js";
 
 // Formatos de resposta da API. Datas trafegam como string ISO.
@@ -154,6 +157,9 @@ export interface ConversationDetail extends Omit<ConversationSummary, "contact">
   /** WhatsApp: última mensagem do cliente e se a janela de 24h está aberta. */
   lastInboundAt: string | null;
   serviceWindowOpen: boolean;
+  /** Última passagem automática da IA para humano (motivo), se houver. */
+  aiHandoffReason: AiHandoffReason | null;
+  aiHandoffAt: string | null;
 }
 
 export interface MessageItem {
@@ -218,4 +224,102 @@ export interface WhatsAppCompanyStatus {
   status: WhatsAppAccountStatus | null;
   displayPhoneNumber: string | null;
   verifiedName: string | null;
+}
+
+// ---------------------------------------------------------------- FASE 4
+
+export interface AiSettingsView {
+  enabled: boolean;
+  defaultConversationMode: ConversationMode;
+  assistantName: string;
+  tone: AiTone;
+  instructions: string | null;
+  /** Texto personalizado (null = usa o padrão). */
+  handoffMessage: string | null;
+  /** Texto que de fato é enviado ao cliente. */
+  effectiveHandoffMessage: string;
+  alwaysOn: boolean;
+  timezone: string;
+  scheduleDays: number[];
+  scheduleStart: string;
+  scheduleEnd: string;
+  /** null enquanto a empresa usa só os valores padrão. */
+  updatedAt: string | null;
+}
+
+/** Estado do provedor de IA neste servidor. Nunca contém a chave. */
+export interface AiPlatformInfo {
+  /** true quando ANTHROPIC_API_KEY está definida. */
+  configured: boolean;
+  /** true quando a API configurada não é a oficial (simulador local). */
+  simulated: boolean;
+  model: string;
+}
+
+export interface AiStatusResponse {
+  settings: AiSettingsView;
+  platform: AiPlatformInfo;
+  /** A IA está, neste momento, dentro do horário permitido. */
+  withinSchedule: boolean;
+  /** Resumo do que impede respostas automáticas agora (vazio = pode responder). */
+  blockers: string[];
+  knowledge: { total: number; active: number; activeChars: number; contextLimitChars: number };
+  /** O que o usuário atual pode editar. */
+  permissions: { editSettings: boolean; editAdminSettings: boolean; editKnowledge: boolean };
+}
+
+export interface KnowledgeEntryItem {
+  id: string;
+  title: string;
+  content: string;
+  category: string | null;
+  active: boolean;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeListResponse extends Paginated<KnowledgeEntryItem> {
+  canEdit: boolean;
+}
+
+export interface AiRunItem {
+  id: string;
+  createdAt: string;
+  conversationId: string;
+  model: string;
+  result: AiRunResult;
+  stopReason: string | null;
+  handoffReason: AiHandoffReason | null;
+  errorType: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  cacheReadInputTokens: number | null;
+  /** Estimativa em USD (string decimal); null = consumo ou preço indisponível. */
+  costUsd: string | null;
+  latencyMs: number | null;
+  messageCount: number;
+}
+
+export interface AiUsageSummary {
+  days: number;
+  from: string;
+  to: string;
+  runs: number;
+  byResult: Record<AiRunResult, number>;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  /** Soma das estimativas conhecidas (string decimal, USD). */
+  estimatedCostUsd: string;
+  /** Execuções sem consumo informado pela API (não entram nos totais). */
+  runsWithoutUsage: number;
+  /** Execuções com consumo, mas sem preço configurado para o modelo (custo fora da soma). */
+  runsWithoutPrice: number;
+  byModel: { model: string; runs: number; estimatedCostUsd: string }[];
+  daily: { date: string; runs: number; estimatedCostUsd: string }[];
+  recent: AiRunItem[];
+  pricing: { model: string; inputPerMTok: number; outputPerMTok: number; cacheWritePerMTok: number; cacheReadPerMTok: number } | null;
 }

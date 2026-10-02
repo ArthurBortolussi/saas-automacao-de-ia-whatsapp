@@ -15,5 +15,10 @@ export function useTestDatabaseEnv(): string {
   process.env["NODE_ENV"] = "test";
   // Sem timer do worker do WhatsApp nos testes: quem precisa processa a fila com worker.drain().
   process.env["WHATSAPP_WORKER_INTERVAL_MS"] = "0";
+  // Idem para a IA (worker.drain() nos testes). Sem chave por padrão: a IA fica "não configurada" e
+  // nenhum teste chama a Anthropic real. Vazio (e não removido) para o .env do desenvolvedor não repor o valor.
+  process.env["AI_WORKER_INTERVAL_MS"] = "0";
+  process.env["ANTHROPIC_API_KEY"] = "";
+  process.env["ANTHROPIC_BASE_URL"] = "";
   return testUrl;
 }

@@ -32,6 +32,8 @@ export function toConversationDetail(
     humanMayReply: humanMayReply(conversation.mode),
     lastInboundAt: conversation.lastInboundAt?.toISOString() ?? null,
     serviceWindowOpen: conversation.channel === "WHATSAPP" && isServiceWindowOpen(conversation.lastInboundAt),
+    aiHandoffReason: conversation.aiHandoffReason,
+    aiHandoffAt: conversation.aiHandoffAt?.toISOString() ?? null,
   };
 }
 
