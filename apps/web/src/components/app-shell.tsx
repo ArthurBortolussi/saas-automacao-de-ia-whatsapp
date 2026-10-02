@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Logo } from "./logo";
 import { LogoutButton } from "./logout-button";
 import { SidebarNav } from "./sidebar-nav";
+import { AvailabilityControl } from "./team/availability-control";
 
 interface AppShellProps {
   variant: "admin" | "company";
@@ -29,7 +30,17 @@ export function AppShell({ variant, me, context, children }: AppShellProps) {
           </div>
         </div>
         <SidebarNav variant={variant} />
-        <div className="mt-auto hidden items-center gap-2.5 rounded-md border border-sidebar-border bg-background px-2.5 py-2 md:flex">
+        {variant === "company" && me.membership ? (
+          <div className="md:mt-auto">
+            <AvailabilityControl companyId={me.membership.company.id} availability={me.membership.availability} />
+          </div>
+        ) : null}
+        {/* Com o seletor de disponibilidade, ele ocupa o mt-auto; o cartão do usuário vem logo abaixo. */}
+        <div
+          className={`hidden items-center gap-2.5 rounded-md border border-sidebar-border bg-background px-2.5 py-2 md:flex ${
+            variant === "company" && me.membership ? "" : "mt-auto"
+          }`}
+        >
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
             {initials}
           </span>

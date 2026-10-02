@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { segment: "", label: "Visão geral" },
   { segment: "/users", label: "Usuários" },
+  { segment: "/team", label: "Equipe" },
   { segment: "/ai", label: "IA" },
   { segment: "/whatsapp", label: "WhatsApp" },
   { segment: "/knowledge-base", label: "Base de conhecimento" },

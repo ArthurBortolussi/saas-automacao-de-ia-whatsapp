@@ -21,12 +21,14 @@ interface ComposerProps {
   companyId: string;
   conversationId: string;
   canReply: boolean;
+  /** Fase 5: atendimento finalizado (reabre quando o cliente escrever). */
+  closed?: boolean;
   mode: ConversationMode;
   channel: ConversationChannel;
   serviceWindowOpen: boolean;
 }
 
-export function Composer({ companyId, conversationId, canReply, mode, channel, serviceWindowOpen }: ComposerProps) {
+export function Composer({ companyId, conversationId, canReply, closed = false, mode, channel, serviceWindowOpen }: ComposerProps) {
   const router = useRouter();
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export function Composer({ companyId, conversationId, canReply, mode, channel, s
   if (!canReply || (whatsapp && !serviceWindowOpen)) {
     return (
       <div className="border-t bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">
-        {canReply ? WINDOW_CLOSED_HINT : BLOCKED_HINT[mode]}
+        {closed ? "Atendimento finalizado. Ele é reaberto quando o cliente escrever de novo." : canReply ? WINDOW_CLOSED_HINT : BLOCKED_HINT[mode]}
       </div>
     );
   }

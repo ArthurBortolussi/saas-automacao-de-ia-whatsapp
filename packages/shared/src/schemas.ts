@@ -200,6 +200,8 @@ export type InboxFilter = (typeof INBOX_FILTERS)[number];
 export const listConversationsQuerySchema = strictObject({
   filter: z.enum(INBOX_FILTERS, { error: "Filtro inválido." }).default("all"),
   contactId: optional(uuidSchema),
+  // Fase 5: atendimentos atribuídos a um funcionário (o filtro é sempre dentro da empresa da rota).
+  assigneeId: optional(uuidSchema),
   ...pageFields,
 });
 export type ListConversationsQuery = z.output<typeof listConversationsQuerySchema>;

@@ -45,7 +45,11 @@ conhecimento por empresa, configurações da IA por empresa, transferência para
 (tokens e custo estimado). Telas: admin → empresa → IA, Base de conhecimento, Uso; dashboard → Base de conhecimento,
 Configurações (IA); aviso de transferência na Inbox. Simulador local `ai:mock-anthropic`. Detalhes na seção abaixo.
 
-**Placeholders** (telas existem, sem lógica): admin → Configurações; dashboard → Analytics, Equipe.
+**Fase 5 — equipe e atendimento humano.** Aba Equipe (cadastro com senha provisória, perfis, ativação, limites,
+disponibilidade), distribuição automática, fila persistente com mensagem de espera, transferências, encerramento manual
+e por inatividade, reabertura no modo padrão da empresa. Detalhes na seção abaixo.
+
+**Placeholders** (telas existem, sem lógica): admin → Configurações; dashboard → Analytics.
 
 ## Regras de segurança e multi-tenancy (obrigatórias)
 
@@ -101,9 +105,10 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test     # validação complet
 No Windows (ambiente do desenvolvedor): `pnpm.cmd` no lugar de `pnpm`, no PowerShell.
 Testes: **e2e contra PostgreSQL real** (`TEST_DATABASE_URL`, o nome precisa terminar em `_test` e é truncado),
 pelo HTTP com cookie real; a Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`,
-`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 13 arquivos, 213 testes passando.
+`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 15 arquivos, 249 testes passando.
 `test/ai-simulator.e2e.test.ts` sobe o próprio `scripts/ai-mock-anthropic.mjs` com a base da Empresa Demo.
-Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` antes de limpar o banco.
+Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` / `team.drain()` antes de limpar o banco
+(`TEAM_WORKER_INTERVAL_MS=0` nos testes). Helpers da equipe em `test/team-helpers.ts`.
 `test/test-env.ts` zera todas as `AI_*`/`ANTHROPIC_*` do `.env` do desenvolvedor: nenhum teste chama a Anthropic real.
 
 ## WhatsApp: simulação × integração real
@@ -129,7 +134,8 @@ As principais (lista completa no README): rate limit em memória; Inbox por poll
 mais recentes; mídia recebida só como aviso e envio só de texto; sem gerenciador de modelos (templates), logo nada é
 enviado fora da janela de 24h; "Nova conversa" pelo painel é interna; possível envio duplicado se a API cair entre
 o aceite da Meta e a gravação do wamid; sem edição de empresa/usuário pelo painel; IA validada só com simulador;
-base só com texto; mídia vai direto para humano; sem limite de gasto (decisão do proprietário).
+base só com texto; mídia vai direto para humano; sem limite de gasto (decisão do proprietário); disponibilidade
+manual (não depende de presença); funcionário não puxa conversa da fila manualmente.
 
 ## Próximos passos (fora da Fase 4, quando o cliente pedir)
 
@@ -177,3 +183,39 @@ pegava a primeira entrada, não a melhor. A seleção de produção (`keywords`/
 **Pontos de atenção para a próxima fase:** validar com o Claude real (qualidade das respostas, taxa de transferência,
 custo por conversa, `cache_read_input_tokens` > 0 a partir da 2ª mensagem); respostas descartadas por troca de modo são
 pagas; a seleção da base por palavras pode errar em bases grandes.
+
+## Fase 5 — implementada (equipe e atendimento humano)
+
+**Decisões do proprietário (definitivas):** distribuição automática para quem tem menos atendimentos, empate em
+rotação; disponibilidade manual `AVAILABLE | BUSY | AWAY` persistida (só AVAILABLE recebe novas); BUSY/AWAY mantêm as
+conversas (sem redistribuição automática); limite individual definido por OWNER/ADMIN e aplicado na distribuição e nas
+transferências; encerramento manual e automático por inatividade (prazo por empresa); cliente que volta após o
+encerramento segue o modo padrão da empresa (IA ou fila humana), na mesma conversa; administração cotidiana da equipe é
+do OWNER/ADMIN, SUPERADMIN só supervisiona; fila com mensagem de espera fixa enviada uma vez por entrada.
+
+**Três conceitos separados — não misturar:** `Conversation.mode` (AI/HUMAN/PAUSED: quem responde),
+`Conversation.status` (OPEN/QUEUED/ASSIGNED/CLOSED: andamento) e `CompanyMember.availability`. CHECKs no banco impedem
+combinações contraditórias (ver a migration `20261003120000_team_distribution`); o responsável tem FK composta para
+`CompanyMember(companyId, userId)`.
+
+**Regras de implementação (minhas, revisáveis):** membros nascem `AWAY`; desativar devolve as conversas da pessoa à
+fila (sem nova mensagem de espera) e encerra as sessões; "Assumir" respeita o limite e só é permitido a membros da
+empresa; AGENT pode assumir uma conversa PAUSADA de outra pessoa (regra da Fase 2 preservada), mas não mexe em
+atendimento ativo de colega; SUPERADMIN não transfere/encerra/administra equipe (403), mas mantém a criação técnica de
+usuários (aba Usuários, Fase 1) e pode consultar tudo; conversas humanas antigas sem responsável ficam `OPEN` até o
+cliente escrever (entram na fila) ou serem atribuídas.
+
+**Peças (apps/api/src/team/):**
+- `team-lock.ts`: `lockCompanyTeam(tx, companyId)` = `pg_advisory_xact_lock` por empresa. **Toda** mudança de
+  atribuição (distribuir, transferir, encerrar, assumir, devolver à IA, disponibilidade, limites, ativação) usa essa trava.
+- `distribution.service.ts`: candidatos (SQL), `distribute`, `assign` (condicional ao status esperado),
+  `transfer`, `closeManually`, `closeInactive`, `sendQueueNotices`, `requeueMemberConversations`.
+- `conversation-state.ts`: `queuedData`, `releasedData`, `endOpenAssignment` (puros; usados por webhook, IA e conversas).
+- `team.service.ts`/`team.controller.ts`: `GET /companies/:id/team`, `POST .../team/members`, `PATCH .../team/members/:userId`,
+  `PATCH .../team/me/availability`, `PATCH .../team/settings`.
+- `team-worker.service.ts`: a cada `TEAM_WORKER_INTERVAL_MS` distribui as filas (recuperação), envia avisos e encerra
+  inativos; `ConversationEvents.emitHumanQueued` antecipa o ciclo.
+- Conversas: `POST .../conversations/:id/close`, `POST .../:id/transfer`, `GET .../:id/assignees`, filtros
+  `mine|queued|unassigned|closed` e `assigneeId`. `webhook-processor` trava a linha da conversa (FOR UPDATE) antes de
+  decidir reabrir/enfileirar. A IA (`ai-reply.service` `switchToHuman`) coloca na fila na mesma transação.
+- `lastActivityAt` = critério de inatividade: mensagem recebida, envio (equipe/IA/sistema) e atribuição.

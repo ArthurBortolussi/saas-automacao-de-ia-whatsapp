@@ -288,9 +288,29 @@ async function seedAiDemo() {
   console.log("IA: 6 informações fictícias na base da Empresa Demo (1 inativa).");
 }
 
+/**
+ * Fase 5: uma atendente FICTÍCIA na Empresa Demo para testar distribuição e transferências.
+ * Só é criada se não existir (nunca altera usuários, perfis, limites ou disponibilidade já existentes).
+ */
+async function seedTeamDemo() {
+  const company = await prisma.company.findUnique({ where: { slug: "empresa-demo-dev" } });
+  if (!company) return;
+  const email = "atendente@demo.local";
+  if (await prisma.user.findUnique({ where: { email } })) {
+    console.log("Equipe: atendente@demo.local já existe (mantida).");
+    return;
+  }
+  const user = await prisma.user.create({
+    data: { name: "Atendente Demo", email, passwordHash: await hashPassword("demo-agent-dev-123"), globalRole: "USER" },
+  });
+  await prisma.companyMember.create({ data: { companyId: company.id, userId: user.id, role: "AGENT", maxConcurrent: 3 } });
+  console.log("Equipe: atendente@demo.local criada (AGENT, limite 3, começa Ausente).");
+}
+
 main()
   .then(seedSimulatedWhatsApp)
   .then(seedAiDemo)
+  .then(seedTeamDemo)
   .catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;

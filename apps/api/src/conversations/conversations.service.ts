@@ -90,6 +90,7 @@ export class ConversationsService {
       companyId: company.id,
       ...filterWhere(query.filter, user.id),
       ...(query.contactId ? { contactId: query.contactId } : {}),
+      ...(query.assigneeId ? { assignedUserId: query.assigneeId, status: "ASSIGNED" } : {}),
     };
     // A fila é mostrada em ordem de chegada; as demais, pela última mensagem.
     const orderBy: Prisma.ConversationOrderByWithRelationInput[] =

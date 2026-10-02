@@ -47,6 +47,8 @@ export interface MeResponse {
   membership: {
     role: MemberRole;
     company: { id: string; name: string; slug: string; status: CompanyStatus };
+    /** Fase 5: disponibilidade atual do funcionário (para o seletor do painel). */
+    availability: AgentAvailability;
   } | null;
 }
 

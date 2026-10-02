@@ -34,15 +34,26 @@ interface ConversationListProps {
   conversations: Paginated<ConversationSummary>;
   filter: InboxFilter;
   selectedId: string | null;
+  /** Filtro por responsável (vindo da aba Equipe), mantido ao navegar. */
+  assignee: string | null;
 }
 
-export function ConversationList({ conversations, filter, selectedId }: ConversationListProps) {
-  const query = (params: Record<string, string>) => `/dashboard/inbox?${new URLSearchParams(params).toString()}`;
+export function ConversationList({ conversations, filter, selectedId, assignee }: ConversationListProps) {
+  const query = (params: Record<string, string>) =>
+    `/dashboard/inbox?${new URLSearchParams({ ...params, ...(assignee ? { assignee } : {}) }).toString()}`;
 
   return (
     <>
       <div className="space-y-3 border-b px-4 pt-4 pb-3">
         <h1 className="text-lg font-semibold tracking-tight">Inbox</h1>
+        {assignee ? (
+          <p className="text-xs text-muted-foreground">
+            Mostrando os atendimentos de um funcionário.{" "}
+            <Link href="/dashboard/inbox" prefetch={false} className="underline underline-offset-4">
+              Ver todas
+            </Link>
+          </p>
+        ) : null}
         <nav className="-mx-1 flex flex-wrap gap-1" aria-label="Filtros">
           {FILTERS.map((item) => (
             <Link

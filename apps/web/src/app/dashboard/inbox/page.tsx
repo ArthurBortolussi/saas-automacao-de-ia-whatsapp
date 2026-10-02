@@ -23,11 +23,14 @@ export default async function InboxPage({ searchParams }: PageProps<"/dashboard/
   const filterParam = firstParam(params["filter"]);
   const filter: InboxFilter = (INBOX_FILTERS as readonly string[]).includes(filterParam) ? (filterParam as InboxFilter) : "all";
   const selectedId = firstParam(params["c"]);
+  // Fase 5: atendimentos de um funcionário (link da aba Equipe). O backend filtra dentro da empresa.
+  const assigneeParam = firstParam(params["assignee"]);
+  const assignee = UUID.test(assigneeParam) ? assigneeParam : null;
   const hasSelection = UUID.test(selectedId);
 
   const base = `/companies/${companyId}/conversations`;
   const [list, conversation, messages] = await Promise.all([
-    fetchPageData<Paginated<ConversationSummary>>(`${base}?filter=${filter}&pageSize=50`),
+    fetchPageData<Paginated<ConversationSummary>>(`${base}?filter=${filter}&pageSize=50${assignee ? `&assigneeId=${assignee}` : ""}`),
     hasSelection ? fetchPageDataOrNull<ConversationDetail>(`${base}/${selectedId}`) : null,
     hasSelection ? fetchPageDataOrNull<MessagePage>(`${base}/${selectedId}/messages?limit=50`) : null,
   ]);
@@ -36,7 +39,7 @@ export default async function InboxPage({ searchParams }: PageProps<"/dashboard/
     <div className="-mx-4 -my-6 flex h-[calc(100dvh-7.5rem)] overflow-hidden border-y bg-card md:-mx-10 md:-my-10 md:h-dvh md:border-y-0">
       <AutoRefresh />
       <aside className={cn("w-full shrink-0 flex-col border-r md:flex md:w-80", selectedId ? "hidden" : "flex")}>
-        <ConversationList conversations={list} filter={filter} selectedId={conversation?.id ?? null} />
+        <ConversationList conversations={list} filter={filter} selectedId={conversation?.id ?? null} assignee={assignee} />
       </aside>
       <section className={cn("min-w-0 flex-1 flex-col", selectedId ? "flex" : "hidden md:flex")}>
         {conversation && messages ? (

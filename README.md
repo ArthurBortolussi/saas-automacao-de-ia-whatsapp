@@ -3,8 +3,9 @@
 Plataforma B2B **gerenciada** de atendimento automatizado pelo WhatsApp, com IA (Claude, da Anthropic).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 4** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
-> oficial da Meta** (Fase 3) e **atendimento automático com IA + base de conhecimento** (Fase 4).
+> **Estado atual: FASE 5** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
+> oficial da Meta** (Fase 3), **atendimento automático com IA + base de conhecimento** (Fase 4) e **equipe,
+> distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5).
 >
 > ⚠️ Tudo foi testado **apenas com simuladores**: Graph API simulada (Meta) e API da Anthropic simulada. Nem a Meta
 > real nem o Claude real foram chamados até agora. Veja "Tipos de teste" abaixo antes de colocar em produção.
@@ -206,6 +207,77 @@ preço fica com custo nulo e é contado à parte. Não há limite de gasto (deci
 Tudo conferido no backend: a rota da empresa recusa os campos técnicos (400) e as edições exigem OWNER/ADMIN (403).
 IDs de outra empresa respondem 404; rotas de outra empresa, 403.
 
+### Equipe e atendimento humano (Fase 5)
+
+Três conceitos **separados** (nunca no mesmo campo):
+
+| Conceito | Onde | Valores | Significado |
+|---|---|---|---|
+| Modo da conversa | `Conversation.mode` | `AI`, `HUMAN`, `PAUSED` | Quem pode responder |
+| Estado operacional | `Conversation.status` | `OPEN`, `QUEUED`, `ASSIGNED`, `CLOSED` | Andamento: com a IA ou sem responsável, na fila, com um funcionário, encerrada |
+| Disponibilidade | `CompanyMember.availability` | `AVAILABLE`, `BUSY`, `AWAY` | Se o funcionário recebe conversas **novas** |
+
+Regras garantidas pelo banco (CHECK): conversa `ASSIGNED` tem responsável; `QUEUED` tem horário de entrada na fila e
+nenhum responsável; conversa no modo IA nunca está na fila nem atribuída. O responsável é uma **FK composta**
+`(companyId, assignedUserId) → CompanyMember`: o banco recusa um responsável de outra empresa.
+
+**Distribuição automática** (`apps/api/src/team/distribution.service.ts`), sem IA: candidatos são os funcionários da
+empresa **ativos**, com permissão de atender (`canAttend`), em `AVAILABLE` e com vaga (`atendimentos atribuídos <
+maxConcurrent`). Escolha: **menos atendimentos**; empate → quem recebeu **há mais tempo** (`lastAssignedAt`, rotação);
+depois o id. Roda quando: uma conversa nova nasce em modo humano, a IA transfere, alguém fica disponível, uma vaga é
+liberada (encerramento, transferência, devolução à IA), limite aumentado, funcionário reativado, e a cada ciclo do
+worker (`TEAM_WORKER_INTERVAL_MS`, recuperação após reinício).
+
+**Concorrência**: toda mudança de atribuição acontece numa transação sob uma **trava por empresa**
+(`pg_advisory_xact_lock`), inclusive entre várias instâncias da API. Atribuições são condicionais ao estado lido.
+Resultado testado: nenhuma conversa com dois responsáveis, nenhum limite ultrapassado, empresas diferentes não esperam
+umas pelas outras.
+
+**Fila**: a própria conversa guarda `status = QUEUED` e `queuedAt` (uma entrada por conversa, por definição; ordem de
+chegada por empresa; persistente). Conversas pausadas ficam na fila mas não são distribuídas até serem reativadas.
+A posição mostrada na Inbox é calculada do banco. **Mensagem de espera**: texto fixo (`QUEUE_WAITING_MESSAGE`), sem IA,
+enviada **uma vez por entrada na fila** pelo envio da Fase 3 (remetente `SYSTEM`); a marcação acontece na mesma
+transação da mensagem. Se não puder enviar (janela de 24h fechada, conversa interna, WhatsApp desligado), a conversa
+continua na fila e o motivo fica em `queueNoticeError`.
+
+**Transferência**: funcionário transfere só as próprias conversas; OWNER/ADMIN transferem qualquer conversa humana da
+empresa (inclusive da fila ou sem responsável). Destinatário: mesma empresa, ativo, habilitado, `AVAILABLE` e com vaga
+— conferido **sob a trava**; se mudar no meio do caminho, a transferência é recusada. A tela lista só os elegíveis.
+
+**Encerramento**: manual ("Finalizar atendimento": responsável ou OWNER/ADMIN) ou **automático por inatividade**
+(prazo por empresa, padrão 240 min, aba Equipe). Critério de inatividade: `lastActivityAt` — atualizado por mensagem
+recebida, mensagem enviada pela equipe/IA/sistema e pela própria atribuição. Não encerra se houver mensagem ainda sendo
+enviada; o encerramento é condicional à última atividade lida, e a mensagem recebida trava a linha da conversa: se o
+cliente escrever durante o encerramento, ou o encerramento desiste, ou a mensagem reabre o atendimento.
+
+**Reabertura**: mensagem nova numa conversa encerrada reabre **a mesma conversa** (histórico preservado) num ciclo novo,
+no **modo padrão da empresa**: IA → modo IA, sem responsável, a IA responde; humano → fila e distribuição. Mensagens
+repetidas da Meta (mesmo wamid) não reabrem duas vezes.
+
+**IA (Fase 4)**: quando a IA transfere, a conversa vai para a fila na mesma transação e é distribuída. Devolver para a IA
+tira o responsável e a fila, libera a vaga e cancela tarefas da IA; a IA só responde mensagens que chegarem depois.
+
+**Desativar um funcionário** encerra as sessões dele e devolve as conversas dele para a fila (sem nova mensagem de
+espera). Mudar para Ocupado/Ausente **não** mexe nas conversas atuais.
+
+**Conversas antigas (antes da Fase 5)**: humanas/pausadas com responsável que é membro da empresa viraram `ASSIGNED`
+para essa mesma pessoa; responsável que não é membro (ex.: SUPERADMIN) foi removido; humanas sem responsável ficaram
+`OPEN` ("Sem responsável" na Inbox) — sem fila nem mensagem automática, até o cliente escrever de novo (aí entram na
+fila) ou um OWNER/ADMIN atribuir pelo botão "Atribuir a alguém".
+
+**Permissões**
+| | SUPERADMIN | OWNER | ADMIN | AGENT |
+|---|---|---|---|---|
+| Ver a equipe | ✔ (aba Equipe do admin, só consulta) | ✔ | ✔ | ✔ (sem e-mails) |
+| Cadastrar funcionário (senha provisória + troca obrigatória) | ✔ pela aba Usuários (Fase 1) | ✔ | ✔ (exceto proprietário) | — |
+| Perfil, ativar/desativar, limite, "recebe atendimentos" | — | ✔ | ✔ (exceto proprietários) | — |
+| Própria disponibilidade | — | ✔ | ✔ | ✔ |
+| Transferir / finalizar | — (supervisão) | qualquer atendimento humano | qualquer atendimento humano | só os próprios |
+| Responder conversa atribuída a outra pessoa | ✔ | ✔ | ✔ | — |
+| Tempo de inatividade da empresa | — | ✔ | ✔ | — |
+
+Ninguém altera o próprio perfil nem se desativa; a empresa sempre mantém um proprietário ativo.
+
 ## Pré-requisitos
 
 - Node.js **22.12+** (o NestJS 12 é ESM-only e depende de `require(esm)`)
@@ -255,6 +327,7 @@ Um único `.env` na raiz, lido pela API, pelo Prisma e pelo Next. Tudo é valida
 | `AI_KNOWLEDGE_MAX_CHARS` | Tamanho máximo da base no prompt (40.000 caracteres) |
 | `AI_MAX_RUNS_PER_CONVERSATION_PER_HOUR` | Proteção contra loop (20) |
 | `AI_WORKER_INTERVAL_MS` | Intervalo do worker da IA (padrão 2000; `0` desliga o timer) |
+| `TEAM_WORKER_INTERVAL_MS` | Ciclo do worker da equipe: fila, avisos de espera, encerramento por inatividade (padrão 5000; `0` desliga o timer) |
 | `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_OUTPUT_PER_MTOK`, `AI_PRICE_CACHE_WRITE_PER_MTOK`, `AI_PRICE_CACHE_READ_PER_MTOK` | Preço do `AI_MODEL` em US$ por milhão de tokens (os quatro ou nenhum); sem eles vale a tabela interna |
 
 As três primeiras ligam o WhatsApp: **todas ou nenhuma**. Sem nenhuma, a integração fica desligada e o resto do sistema funciona normalmente. Com só uma ou duas, a API não sobe (é quase sempre erro de configuração). Em produção, a API também se recusa a subir com os valores fictícios do `.env.example`.
@@ -305,6 +378,7 @@ pnpm db:seed
 | SUPERADMIN | `admin@arthurai.local` | `admin-dev-password-123` | — |
 | OWNER | `owner@demo.local` | `demo-owner-dev-123` | Empresa Demo (DEV) — `ACTIVE` |
 | OWNER | `owner@outra.local` | `outra-owner-dev-123` | Outra Empresa (DEV) — `ACTIVE` |
+| AGENT | `atendente@demo.local` | `demo-agent-dev-123` | Empresa Demo (DEV) — Fase 5; criada só se não existir |
 
 A segunda empresa existe para testar o isolamento manualmente: logado como `owner@demo.local`, tente `GET /api/companies/<id da Outra Empresa>` → 403.
 
@@ -329,7 +403,7 @@ pnpm dev:web        # http://localhost:3000      (Next.js)
 ```
 
 - **SUPERADMIN**: entre em http://localhost:3000/login com `admin@arthurai.local` → `/admin`.
-- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`, `/dashboard/contacts`, `/dashboard/inbox`, `/dashboard/knowledge-base` e `/dashboard/settings` (IA).
+- **Usuário de empresa**: entre com `owner@demo.local` → `/dashboard`, `/dashboard/contacts`, `/dashboard/inbox`, `/dashboard/knowledge-base`, `/dashboard/settings` (IA) e `/dashboard/team` (Equipe). A disponibilidade fica no menu lateral.
 - Usuário criado pelo painel: no primeiro login é levado a `/change-password`.
 
 Produção: `pnpm build`, depois `node apps/api/dist/main.js` e `pnpm --filter @arthur-ai/web start`.
@@ -375,7 +449,7 @@ enviado, os testes automatizados verificam o conteúdo do prompt; a qualidade re
 
 | Teste | Anthropic | Meta | Como | Situação |
 |---|---|---|---|---|
-| Automatizado (`pnpm test`) | servidor falso no próprio teste (e o próprio simulador, em `ai-simulator.e2e.test.ts`) | servidor falso no próprio teste | — | ✅ 213 testes |
+| Automatizado (`pnpm test`) | servidor falso no próprio teste (e o próprio simulador, em `ai-simulator.e2e.test.ts`) | servidor falso no próprio teste | — | ✅ 249 testes |
 | Local simulado | `pnpm ai:mock-anthropic` | `pnpm whatsapp:mock-graph` | roteiro abaixo | ✅ validado (em Linux) |
 | IA real + Meta simulada | `ANTHROPIC_API_KEY` real, sem `ANTHROPIC_BASE_URL` | simulada | "Usar o Claude de verdade" | ⚠️ não testado |
 | Meta real | simulada ou real | número real + túnel HTTPS | "Conectar um número real" | ⚠️ não testado |
@@ -420,6 +494,43 @@ enviado, os testes automatizados verificam o conteúdo do prompt; a qualidade re
 Para testar o horário: na aba IA, desmarque "Atendimento 24 horas", deixe um intervalo que não inclua agora e simule
 uma mensagem: ela fica para a equipe e não é respondida.
 
+## Testar a equipe localmente (Fase 5) — Windows / PowerShell
+
+Usa os mesmos simuladores da Meta e da Anthropic (nenhuma chave real). Antes, atualize o projeto (comandos no fim do
+roteiro da IA acima: `git pull`, `pnpm.cmd install`, `pnpm.cmd db:deploy`, `pnpm.cmd db:seed`) e acrescente ao `.env`
+a linha `TEAM_WORKER_INTERVAL_MS=5000` (do `.env.example`). Suba as quatro janelas (`whatsapp:mock-graph`,
+`ai:mock-anthropic`, `dev:api`, `dev:web`).
+
+Use **duas janelas do navegador** (uma normal e uma anônima) para ter dois funcionários logados ao mesmo tempo:
+`owner@demo.local` / `demo-owner-dev-123` e `atendente@demo.local` / `demo-agent-dev-123`.
+
+1. **Criar funcionário**: como `owner@demo.local` → **Equipe** → **Cadastrar funcionário** (nome, e-mail, senha provisória
+   de 10+ caracteres, perfil, limite). Entre com esse e-mail numa janela anônima: o sistema pede a troca da senha.
+2. **Disponibilidade**: no menu lateral, "Minha disponibilidade" → **Disponível**. Na aba Equipe aparece "Disponível".
+3. **Fila de espera**: deixe todos como **Ausente** e simule um cliente pedindo atendente (a IA transfere):
+   ```powershell
+   pnpm.cmd whatsapp:simulate --from 5511977771111 --text "Quero falar com um atendente"
+   ```
+   Na janela do simulador da Meta aparecem duas mensagens: a de transferência da IA e a de espera ("todos os nossos
+   atendentes estão ocupados..."). Na Inbox, filtro **Na fila**, a conversa mostra "Posição na fila: 1".
+4. **Distribuição automática**: como `atendente@demo.local`, mude para **Disponível**. Em até 5 s a conversa vai para
+   ela (filtro **Minhas**). Mande outros clientes (`--from 5511977772222`, `5511977773333`...) com os dois disponíveis:
+   quem tem menos atendimentos recebe primeiro; empate alterna entre os dois.
+5. **Ocupado/Ausente**: mude para **Ocupado**. As conversas dela continuam com ela; as novas vão para outra pessoa ou
+   para a fila.
+6. **Transferência**: abra a conversa → **Transferir** → escolha um colega disponível → **Confirmar**. A lista só mostra
+   quem está disponível e com vaga.
+7. **Encerramento**: **Finalizar atendimento**. A vaga é liberada (a próxima da fila é distribuída). Para o automático,
+   em **Equipe → Encerramento automático**, coloque 5 minutos e espere sem mandar mensagens.
+8. **Reabertura**: com a conversa encerrada, simule outra mensagem do mesmo cliente:
+   ```powershell
+   pnpm.cmd whatsapp:simulate --from 5511977771111 --text "Qual o endereço?"
+   ```
+   Com o padrão **IA** (Empresa Demo), a mesma conversa reabre e a IA (simulada) responde. Para testar o padrão
+   **humano**: como `admin@arthurai.local` → Empresas → Empresa Demo → **IA** → "Modo inicial das novas conversas" =
+   "Atendimento humano"; aí a reabertura vai para a fila/distribuição.
+9. **Supervisão**: como `admin@arthurai.local` → Empresas → Empresa Demo → **Equipe** (somente consulta).
+
 ## Usar o Claude de verdade (chave da Anthropic)
 
 1. Crie uma chave em https://console.anthropic.com (Settings → API Keys) numa conta com créditos.
@@ -462,7 +573,8 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
 o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
 respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
-a Anthropic real. Estado atual: 13 arquivos, 213 testes.
+a Anthropic real. Estado atual: 15 arquivos, 249 testes (inclui corridas: distribuição simultânea, transferências
+simultâneas, encerramento × mensagem nova).
 
 ## Limitações conhecidas
 
@@ -485,6 +597,15 @@ a Anthropic real. Estado atual: 13 arquivos, 213 testes.
 - **Sem limite de gasto**: nada interrompe a IA por orçamento (decisão desta fase); só o limite anti-loop por conversa.
 - **Custo é estimativa**: calculado pela tabela de preços configurada; a fatura oficial é a do console da Anthropic.
 - **Respostas geradas durante uma troca de modo** são pagas e descartadas (aparecem como "Descartada" no Uso).
+- **Equipe**: um usuário pertence a uma empresa (regra da Fase 1); desativar alguém desativa o login dele.
+- **Disponibilidade é manual**: quem fecha o navegador sem mudar para Ausente continua recebendo conversas (decisão do
+  proprietário: não depende de presença). O encerramento por inatividade evita conversas presas para sempre.
+- **Fila sem "pegar a próxima"**: funcionário não puxa conversa da fila manualmente; a distribuição é automática e
+  OWNER/ADMIN podem atribuir pela transferência.
+- **Conversas pausadas** continuam contando na vaga do responsável e ficam na fila sem serem distribuídas até reativar.
+- **Mensagem de espera** fixa (não personalizável nesta fase) e enviada só quando a janela de 24h está aberta.
+- **Inatividade** é verificada a cada ciclo do worker (5 s por padrão): o encerramento pode acontecer alguns segundos
+  depois do prazo.
 - **Envio duplicado em caso extremo**: se a API cair depois que a Meta aceitou a mensagem e antes de gravar o wamid, a retentativa pode reenviar (a Cloud API não oferece chave de idempotência).
 - **Status de mensagens enviadas fora do Arthur AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
 - **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.

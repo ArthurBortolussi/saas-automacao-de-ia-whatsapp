@@ -91,7 +91,7 @@ export class AuthService {
         globalRole: user.globalRole,
         mustChangePassword: user.mustChangePassword,
       },
-      membership: membership ? { role: membership.role, company: membership.company } : null,
+      membership: membership ? { role: membership.role, company: membership.company, availability: membership.availability } : null,
     };
   }
 }
