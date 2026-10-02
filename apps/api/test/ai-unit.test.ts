@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { classifyError } from "../src/ai/ai-model.client.js";
 import { interpret } from "../src/ai/ai-reply.service.js";
 import { estimateCostUsd, priceFor } from "../src/ai/pricing.js";
-import { buildMessages, escapeData, selectKnowledge } from "../src/ai/prompt.js";
+import { buildMessages, escapeData, keywords, selectKnowledge, singular } from "../src/ai/prompt.js";
 import { aiEnvSchema, buildAiConfig } from "../src/config/ai-config.js";
 
 // 2026-10-05 é segunda-feira. 15:00 UTC = 12:00 em São Paulo (UTC-3).
@@ -61,6 +61,24 @@ describe("[#5] seleção da base de conhecimento", () => {
     const result = selectKnowledge(items, "Quanto custa o clareamento?", 200);
     expect(result.partial).toBe(true);
     expect(result.items.map((item) => item.title)).toEqual(["Endereço", "Clareamento"]);
+  });
+
+  it("compara palavras inteiras, sem acento e no singular ('sábados' encontra 'Sábado'; 'atendem' não casa com 'Atendemos')", () => {
+    expect(["sabados", "convenios", "promocoes", "locais", "valores", "dias", "mes"].map(singular)).toEqual([
+      "sabado", "convenio", "promocao", "local", "valor", "dia", "mes",
+    ]);
+    expect([...keywords("Vocês atendem aos sábados?")]).toEqual(["atendem", "sabado"]);
+    expect(keywords("Atendemos os convênios").has("atendem")).toBe(false);
+
+    const demo = [
+      { title: "Endereço", content: "Rua Fictícia, 123 – Centro, São Paulo/SP.", category: "Atendimento" },
+      { title: "Convênios", content: "Atendemos os convênios Odonto Exemplo e Sorriso Fictício.", category: "Políticas" },
+      { title: "Horário de funcionamento", content: "Segunda a sexta, das 8h às 18h. Sábado, das 8h às 12h.", category: "Atendimento" },
+    ];
+    // Limite que comporta só uma entrada: precisa ser a do horário.
+    const result = selectKnowledge(demo, "Vocês atendem aos sábados?", 140);
+    expect(result).toMatchObject({ partial: true });
+    expect(result.items.map((item) => item.title)).toEqual(["Horário de funcionamento"]);
   });
 
   it("conteúdo cadastrado não consegue fechar as tags que o delimitam", () => {

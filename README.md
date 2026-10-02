@@ -360,11 +360,22 @@ O simulador `pnpm ai:mock-anthropic` imita a API da Anthropic em `http://localho
 por regras simples, procurando na base de conhecimento enviada no prompt. Serve para validar o fluxo (fila,
 agrupamento, envio pelo WhatsApp, transferência, consumo) sem chave e sem custo.
 
+| | Simulador | Claude real |
+|---|---|---|
+| Como responde | Copia **inteira** a entrada da base com mais palavras em comum com o último turno do cliente (palavra inteira, sem acento, no singular; título vale 3) | Lê a base inteira e escreve uma resposta própria, no tom configurado |
+| Sinônimos e intenção | Não entende ("abrem" não leva a "funcionamento"; só acerta se houver palavra em comum, como "domingo") | Entende |
+| Pergunta sem palavra em comum com a base | Pede transferência (`sem_informacao`) | Responde se a informação existir com outras palavras, ou transfere |
+| Várias perguntas na mesma mensagem | Responde só com a entrada de maior pontuação | Responde todas |
+| Histórico da conversa | Ignora (usa só o último turno do cliente) | Usa |
+
+Ou seja: uma resposta estranha do simulador **não** indica, por si só, erro no prompt enviado. Para conferir o que foi
+enviado, os testes automatizados verificam o conteúdo do prompt; a qualidade real só se mede com a chave real.
+
 ### Tipos de teste
 
 | Teste | Anthropic | Meta | Como | Situação |
 |---|---|---|---|---|
-| Automatizado (`pnpm test`) | servidor falso no próprio teste | servidor falso no próprio teste | — | ✅ 207 testes |
+| Automatizado (`pnpm test`) | servidor falso no próprio teste (e o próprio simulador, em `ai-simulator.e2e.test.ts`) | servidor falso no próprio teste | — | ✅ 213 testes |
 | Local simulado | `pnpm ai:mock-anthropic` | `pnpm whatsapp:mock-graph` | roteiro abaixo | ✅ validado (em Linux) |
 | IA real + Meta simulada | `ANTHROPIC_API_KEY` real, sem `ANTHROPIC_BASE_URL` | simulada | "Usar o Claude de verdade" | ⚠️ não testado |
 | Meta real | simulada ou real | número real + túnel HTTPS | "Conectar um número real" | ⚠️ não testado |
@@ -451,7 +462,7 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
 o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
 respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
-a Anthropic real. Estado atual: 12 arquivos, 207 testes.
+a Anthropic real. Estado atual: 13 arquivos, 213 testes.
 
 ## Limitações conhecidas
 
@@ -468,7 +479,8 @@ a Anthropic real. Estado atual: 12 arquivos, 207 testes.
   real precisam ser conferidos com uma chave de verdade e conversas reais antes de ligar para clientes.
 - **IA fora do horário não responde depois**: a mensagem fica para a equipe; não há "mensagem de ausência" automática.
 - **Base de conhecimento só com texto**: sem upload de PDF/arquivos. Bases maiores que `AI_KNOWLEDGE_MAX_CHARS` usam
-  seleção por palavras em comum (pode deixar de fora uma entrada relevante escrita com outras palavras).
+  seleção por palavras em comum (palavra inteira, sem acento, singular aproximado; pode deixar de fora uma entrada
+  relevante escrita com outras palavras, ex.: sinônimos).
 - **Mídia e IA**: áudio, imagem e documentos vão direto para humano (a IA não interpreta).
 - **Sem limite de gasto**: nada interrompe a IA por orçamento (decisão desta fase); só o limite anti-loop por conversa.
 - **Custo é estimativa**: calculado pela tabela de preços configurada; a fatura oficial é a do console da Anthropic.

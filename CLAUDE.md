@@ -101,7 +101,8 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test     # validação complet
 No Windows (ambiente do desenvolvedor): `pnpm.cmd` no lugar de `pnpm`, no PowerShell.
 Testes: **e2e contra PostgreSQL real** (`TEST_DATABASE_URL`, o nome precisa terminar em `_test` e é truncado),
 pelo HTTP com cookie real; a Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`,
-`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 12 arquivos, 207 testes passando.
+`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 13 arquivos, 213 testes passando.
+`test/ai-simulator.e2e.test.ts` sobe o próprio `scripts/ai-mock-anthropic.mjs` com a base da Empresa Demo.
 Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` antes de limpar o banco.
 `test/test-env.ts` zera todas as `AI_*`/`ANTHROPIC_*` do `.env` do desenvolvedor: nenhum teste chama a Anthropic real.
 
@@ -167,6 +168,11 @@ sem `fallbacks` de servidor na recusa (poderia cair num Opus; recusa vira transf
   Meta, em segundos).
 - Rotas: `GET /companies/:id/ai`, `PATCH /companies/:id/ai/settings` (OWNER/ADMIN), `/companies/:id/knowledge-base`
   (CRUD; escrita OWNER/ADMIN), `PATCH /admin/companies/:id/ai/settings` e `GET /admin/companies/:id/ai/usage` (SUPERADMIN).
+
+**Simulador ≠ Claude:** `ai-mock-anthropic.mjs` devolve a entrada da base com mais palavras em comum com o último turno
+do cliente (palavra inteira, singular aproximado). Resposta errada do simulador não prova erro no prompt: confira o prompt
+enviado (testes) antes de mexer na produção. Corrigido em 2026-10-02: casava substring ("atendem" ⊂ "Atendemos") e
+pegava a primeira entrada, não a melhor. A seleção de produção (`keywords`/`singular` em `prompt.ts`) usa a mesma ideia.
 
 **Pontos de atenção para a próxima fase:** validar com o Claude real (qualidade das respostas, taxa de transferência,
 custo por conversa, `cache_read_input_tokens` > 0 a partir da 2ª mensagem); respostas descartadas por troca de modo são

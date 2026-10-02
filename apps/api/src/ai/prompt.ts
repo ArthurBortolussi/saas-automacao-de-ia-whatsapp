@@ -165,14 +165,34 @@ export function buildMessages(history: HistoryMessage[], maxChars: number): Anth
 }
 
 const STOPWORDS = new Set([
-  "que", "para", "com", "uma", "uns", "umas", "por", "como", "mais", "mas", "dos", "das", "nos", "nas", "não", "nao",
-  "sim", "voce", "voces", "vocês", "você", "ola", "olá", "oi", "bom", "boa", "dia", "tarde", "noite", "obrigado",
-  "obrigada", "queria", "quero", "gostaria", "saber", "sobre", "tem", "tenho", "qual", "quais", "quanto", "pode",
+  "que", "para", "com", "uma", "uns", "umas", "por", "como", "mais", "mas", "dos", "das", "nos", "nas", "nao", "aos",
+  "sim", "voce", "voces", "ola", "oi", "bom", "boa", "dia", "tarde", "noite", "obrigado", "obrigada", "queria", "quero",
+  "gostaria", "saber", "sobre", "tem", "tenho", "qual", "quais", "quanto", "pode", "esse", "essa", "isso", "este",
+  "esta", "seu", "sua", "seus", "suas", "meu", "minha",
 ]);
 
-function keywords(text: string): Set<string> {
-  const normalized = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  return new Set(normalized.split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !STOPWORDS.has(word)));
+/**
+ * Singular aproximado do português, para "sábados" encontrar "Sábado" e "convênios" encontrar "Convênio".
+ * Heurística simples (não é um stemmer completo): -ões/-ães → -ão, -ais → -al, -res/-zes → sem "es", -s final.
+ */
+export function singular(word: string): string {
+  if (word.length >= 5 && /(oes|aes)$/.test(word)) return `${word.slice(0, -3)}ao`;
+  if (word.length >= 5 && word.endsWith("ais")) return `${word.slice(0, -3)}al`;
+  if (word.length >= 5 && /(res|zes)$/.test(word)) return word.slice(0, -2);
+  if (word.length >= 4 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
+/** Palavras significativas, sem acento e no singular; a comparação é por palavra inteira (nunca substring). */
+export function keywords(text: string): Set<string> {
+  const normalized = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const words = new Set<string>();
+  for (const word of normalized.split(/[^a-z0-9]+/)) {
+    if (word.length < 3 || STOPWORDS.has(word)) continue;
+    const base = singular(word);
+    if (!STOPWORDS.has(base)) words.add(base);
+  }
+  return words;
 }
 
 function itemSize(item: KnowledgeItem): number {
