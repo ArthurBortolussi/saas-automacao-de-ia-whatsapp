@@ -70,3 +70,22 @@ export type AiTaskStatus = (typeof AI_TASK_STATUSES)[number];
 
 export const AI_RUN_RESULTS = ["REPLIED", "HANDOFF", "DISCARDED", "ERROR"] as const;
 export type AiRunResult = (typeof AI_RUN_RESULTS)[number];
+
+// ---------------------------------------------------------------- FASE 5
+
+/** Disponibilidade do funcionário (escolhida por ele). */
+export const AGENT_AVAILABILITIES = ["AVAILABLE", "BUSY", "AWAY"] as const;
+export type AgentAvailability = (typeof AGENT_AVAILABILITIES)[number];
+
+/** Estado operacional da conversa (independente do modo AI/HUMAN/PAUSED). */
+export const CONVERSATION_STATUSES = ["OPEN", "QUEUED", "ASSIGNED", "CLOSED"] as const;
+export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number];
+
+export const CONVERSATION_CLOSE_REASONS = ["MANUAL", "INACTIVITY"] as const;
+export type ConversationCloseReason = (typeof CONVERSATION_CLOSE_REASONS)[number];
+
+export const ASSIGNMENT_START_REASONS = ["AUTO", "TRANSFER", "ASSUME", "CREATED"] as const;
+export type AssignmentStartReason = (typeof ASSIGNMENT_START_REASONS)[number];
+
+export const ASSIGNMENT_END_REASONS = ["TRANSFERRED", "CLOSED", "RETURNED_TO_AI", "REQUEUED"] as const;
+export type AssignmentEndReason = (typeof ASSIGNMENT_END_REASONS)[number];

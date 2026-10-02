@@ -13,6 +13,8 @@ export function toConversationSummary(
     id: conversation.id,
     channel: conversation.channel,
     mode: conversation.mode,
+    status: conversation.status,
+    queuedAt: conversation.queuedAt?.toISOString() ?? null,
     unreadCount: conversation.unreadCount,
     lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
     lastMessagePreview: conversation.lastMessagePreview,
@@ -24,6 +26,7 @@ export function toConversationSummary(
 
 export function toConversationDetail(
   conversation: Conversation & { contact: Contact; assignedUser: UserRefRow },
+  extra: Pick<ConversationDetail, "queuePosition" | "permissions">,
 ): ConversationDetail {
   return {
     ...toConversationSummary(conversation),
@@ -34,6 +37,12 @@ export function toConversationDetail(
     serviceWindowOpen: conversation.channel === "WHATSAPP" && isServiceWindowOpen(conversation.lastInboundAt),
     aiHandoffReason: conversation.aiHandoffReason,
     aiHandoffAt: conversation.aiHandoffAt?.toISOString() ?? null,
+    queuePosition: extra.queuePosition,
+    assignedAt: conversation.assignedAt?.toISOString() ?? null,
+    closedAt: conversation.closedAt?.toISOString() ?? null,
+    closeReason: conversation.closeReason,
+    lastActivityAt: conversation.lastActivityAt?.toISOString() ?? null,
+    permissions: extra.permissions,
   };
 }
 

@@ -2,8 +2,14 @@ import { z } from "zod";
 import { isValidCnpj, normalizeCnpj } from "./cnpj.js";
 import { AI_TIME_PATTERN, isValidTimeZone, KNOWLEDGE_CONTENT_MAX, KNOWLEDGE_TITLE_MAX } from "./ai-rules.js";
 import { CONVERSATION_ACTIONS } from "./conversation-rules.js";
-import { AI_TONES, BRAZILIAN_STATES, type ConversationMode, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
+import { AGENT_AVAILABILITIES, AI_TONES, BRAZILIAN_STATES, type ConversationMode, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
 import { normalizePhone } from "./phone.js";
+import {
+  DEFAULT_MAX_CONCURRENT,
+  MAX_CONCURRENT_LIMIT,
+  MAX_INACTIVITY_TIMEOUT_MINUTES,
+  MIN_INACTIVITY_TIMEOUT_MINUTES,
+} from "./team-rules.js";
 
 // Mensagens padrão do Zod em português (usadas quando o schema não define mensagem própria).
 z.config(z.locales.ptBR());
@@ -187,7 +193,8 @@ export const listContactsQuerySchema = strictObject({
 });
 export type ListContactsQuery = z.output<typeof listContactsQuerySchema>;
 
-export const INBOX_FILTERS = ["all", "ai", "human", "paused", "unread"] as const;
+// Fase 5: mine (atribuídas a mim), queued (na fila), unassigned (humanas sem responsável), closed (encerradas).
+export const INBOX_FILTERS = ["all", "ai", "human", "paused", "unread", "mine", "queued", "unassigned", "closed"] as const;
 export type InboxFilter = (typeof INBOX_FILTERS)[number];
 
 export const listConversationsQuerySchema = strictObject({
@@ -368,3 +375,50 @@ export const aiUsageQuerySchema = strictObject({
   days: z.coerce.number().int().min(1).max(366).default(30),
 });
 export type AiUsageQuery = z.output<typeof aiUsageQuerySchema>;
+
+// ---------------------------------------------------------------- FASE 5
+
+const maxConcurrentSchema = z
+  .number({ error: "Informe o limite." })
+  .int("O limite deve ser um número inteiro.")
+  .min(1, "Mínimo de 1 atendimento.")
+  .max(MAX_CONCURRENT_LIMIT, `Máximo de ${MAX_CONCURRENT_LIMIT} atendimentos.`);
+
+/** Cadastro pela própria empresa: senha provisória, trocada obrigatoriamente no primeiro acesso. */
+export const createTeamMemberSchema = strictObject({
+  name: text("o nome", 2, 120),
+  email: emailSchema,
+  password: newPasswordSchema,
+  role: z.enum(MEMBER_ROLES, { error: "Perfil inválido." }),
+  maxConcurrent: maxConcurrentSchema.default(DEFAULT_MAX_CONCURRENT),
+  canAttend: z.boolean({ error: "Valor inválido." }).default(true),
+});
+export type CreateTeamMemberInput = z.input<typeof createTeamMemberSchema>;
+export type CreateTeamMemberData = z.output<typeof createTeamMemberSchema>;
+
+export const updateTeamMemberSchema = strictObject({
+  role: z.enum(MEMBER_ROLES, { error: "Perfil inválido." }).optional(),
+  active: z.boolean({ error: "Valor inválido." }).optional(),
+  maxConcurrent: maxConcurrentSchema.optional(),
+  canAttend: z.boolean({ error: "Valor inválido." }).optional(),
+}).refine((data) => Object.keys(data).length > 0, { message: "Nada para atualizar." });
+export type UpdateTeamMemberInput = z.infer<typeof updateTeamMemberSchema>;
+
+export const updateAvailabilitySchema = strictObject({
+  availability: z.enum(AGENT_AVAILABILITIES, { error: "Disponibilidade inválida." }),
+});
+export type UpdateAvailabilityInput = z.infer<typeof updateAvailabilitySchema>;
+
+export const updateTeamSettingsSchema = strictObject({
+  inactivityTimeoutMinutes: z
+    .number({ error: "Informe o tempo." })
+    .int("Use minutos inteiros.")
+    .min(MIN_INACTIVITY_TIMEOUT_MINUTES, `Mínimo de ${MIN_INACTIVITY_TIMEOUT_MINUTES} minutos.`)
+    .max(MAX_INACTIVITY_TIMEOUT_MINUTES, "Máximo de 30 dias."),
+});
+export type UpdateTeamSettingsInput = z.infer<typeof updateTeamSettingsSchema>;
+
+export const transferConversationSchema = strictObject({
+  toUserId: uuidSchema,
+});
+export type TransferConversationInput = z.infer<typeof transferConversationSchema>;

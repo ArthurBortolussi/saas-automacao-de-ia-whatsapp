@@ -7,6 +7,7 @@ export interface InboundMessageEvent {
 }
 
 type Listener = (event: InboundMessageEvent) => Promise<void> | void;
+type CompanyListener = (companyId: string) => Promise<void> | void;
 
 /**
  * Ponto de extensão para a Fase 4: o serviço de IA vai assinar este evento, conferir o modo
@@ -17,9 +18,25 @@ type Listener = (event: InboundMessageEvent) => Promise<void> | void;
 export class ConversationEvents {
   private readonly logger = new Logger(ConversationEvents.name);
   private readonly listeners: Listener[] = [];
+  private readonly humanListeners: CompanyListener[] = [];
 
   onInboundMessage(listener: Listener): void {
     this.listeners.push(listener);
+  }
+
+  /** Fase 5: uma conversa entrou na fila humana (já gravada). Só antecipa o worker da equipe. */
+  onHumanQueued(listener: CompanyListener): void {
+    this.humanListeners.push(listener);
+  }
+
+  emitHumanQueued(companyId: string): void {
+    for (const listener of this.humanListeners) {
+      Promise.resolve()
+        .then(() => listener(companyId))
+        .catch((error: unknown) => {
+          this.logger.error(`Ouvinte de fila humana falhou: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }
   }
 
   emitInboundMessage(event: InboundMessageEvent): void {

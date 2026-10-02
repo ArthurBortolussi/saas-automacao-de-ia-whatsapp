@@ -1,4 +1,9 @@
 import type {
+  AgentAvailability as SharedAgentAvailability,
+  AssignmentEndReason as SharedAssignmentEndReason,
+  AssignmentStartReason as SharedAssignmentStartReason,
+  ConversationCloseReason as SharedConversationCloseReason,
+  ConversationStatus as SharedConversationStatus,
   AiHandoffReason as SharedAiHandoffReason,
   AiRunResult as SharedAiRunResult,
   AiTaskStatus as SharedAiTaskStatus,
@@ -18,6 +23,11 @@ import type {
   UserStatus as SharedUserStatus,
 } from "@arthur-ai/shared";
 import type {
+  AgentAvailability,
+  AssignmentEndReason,
+  AssignmentStartReason,
+  ConversationCloseReason,
+  ConversationStatus,
   AiHandoffReason,
   AiRunResult,
   AiTaskStatus,
@@ -59,4 +69,9 @@ export type EnumParity = [
   Assert<Equals<AiHandoffReason, SharedAiHandoffReason>>,
   Assert<Equals<AiTaskStatus, SharedAiTaskStatus>>,
   Assert<Equals<AiRunResult, SharedAiRunResult>>,
+  Assert<Equals<AgentAvailability, SharedAgentAvailability>>,
+  Assert<Equals<ConversationStatus, SharedConversationStatus>>,
+  Assert<Equals<ConversationCloseReason, SharedConversationCloseReason>>,
+  Assert<Equals<AssignmentStartReason, SharedAssignmentStartReason>>,
+  Assert<Equals<AssignmentEndReason, SharedAssignmentEndReason>>,
 ];

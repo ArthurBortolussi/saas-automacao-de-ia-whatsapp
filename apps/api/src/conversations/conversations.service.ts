@@ -1,11 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Company, ConversationMode, Prisma, User } from "@arthur-ai/database";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Company, CompanyMember, ConversationMode, ConversationStatus, Prisma, User } from "@arthur-ai/database";
 import {
   ACTION_ALLOWED_FROM,
   humanMayReply,
   type ConversationAction,
   type ConversationDetail,
   type ConversationSummary,
+  type EligibleAssignee,
   type ListConversationsQuery,
   type ListMessagesQuery,
   type MessageItem,
@@ -14,6 +15,9 @@ import {
 } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { endOpenAssignment, releasedData } from "../team/conversation-state.js";
+import { DistributionService, isTeamManager } from "../team/distribution.service.js";
+import { lockCompanyTeam } from "../team/team-lock.js";
 import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
 import {
   messagePreview,
@@ -25,14 +29,31 @@ import {
 
 const CONVERSATION_NOT_FOUND = "Conversa não encontrada.";
 const CONCURRENT_CHANGE = "A conversa foi alterada por outra pessoa. Atualize a página e tente novamente.";
+const CLOSED_MESSAGE = "Este atendimento foi finalizado. Ele será reaberto automaticamente quando o cliente escrever de novo.";
+const OTHER_AGENT = "Esta conversa está com outro atendente.";
 
-const FILTER_WHERE: Record<ListConversationsQuery["filter"], Prisma.ConversationWhereInput> = {
-  all: {},
-  ai: { mode: "AI" },
-  human: { mode: "HUMAN" },
-  paused: { mode: "PAUSED" },
-  unread: { unreadCount: { gt: 0 } },
-};
+function filterWhere(filter: ListConversationsQuery["filter"], userId: string): Prisma.ConversationWhereInput {
+  switch (filter) {
+    case "all":
+      return {};
+    case "ai":
+      return { mode: "AI" };
+    case "human":
+      return { mode: "HUMAN" };
+    case "paused":
+      return { mode: "PAUSED" };
+    case "unread":
+      return { unreadCount: { gt: 0 } };
+    case "mine":
+      return { status: "ASSIGNED", assignedUserId: userId };
+    case "queued":
+      return { status: "QUEUED" };
+    case "unassigned":
+      return { status: "OPEN", mode: { not: "AI" } };
+    case "closed":
+      return { status: "CLOSED" };
+  }
+}
 
 const INVALID_ACTION_MESSAGE: Record<ConversationAction, string> = {
   ASSUME: "A conversa já está com atendimento humano.",
@@ -41,9 +62,19 @@ const INVALID_ACTION_MESSAGE: Record<ConversationAction, string> = {
   RESUME: "Só é possível reativar uma conversa pausada.",
 };
 
+type CurrentRow = {
+  id: string;
+  mode: ConversationMode;
+  status: ConversationStatus;
+  modeBeforePause: ConversationMode | null;
+  assignedUserId: string | null;
+};
+
 /**
  * Conversas e mensagens. Toda query usa a empresa validada pelo CompanyAccessGuard;
  * as chaves compostas (id, companyId) fazem IDs de outras empresas simplesmente não existirem.
+ * Fase 5: o modo (quem pode responder) e o estado operacional (fila/atribuída/encerrada) são campos separados;
+ * mudanças de atribuição acontecem sob a trava da empresa.
  */
 @Injectable()
 export class ConversationsService {
@@ -51,18 +82,24 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly whatsapp: WhatsAppOutboundService,
+    private readonly distribution: DistributionService,
   ) {}
 
-  async list(company: Company, query: ListConversationsQuery): Promise<Paginated<ConversationSummary>> {
+  async list(company: Company, query: ListConversationsQuery, user: User): Promise<Paginated<ConversationSummary>> {
     const where: Prisma.ConversationWhereInput = {
       companyId: company.id,
-      ...FILTER_WHERE[query.filter],
+      ...filterWhere(query.filter, user.id),
       ...(query.contactId ? { contactId: query.contactId } : {}),
     };
+    // A fila é mostrada em ordem de chegada; as demais, pela última mensagem.
+    const orderBy: Prisma.ConversationOrderByWithRelationInput[] =
+      query.filter === "queued"
+        ? [{ queuedAt: "asc" }, { id: "asc" }]
+        : [{ lastMessageAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }];
     const [items, total] = await this.prisma.$transaction([
       this.prisma.conversation.findMany({
         where,
-        orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }],
+        orderBy,
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
         include: {
@@ -75,25 +112,64 @@ export class ConversationsService {
     return { items: items.map(toConversationSummary), page: query.page, pageSize: query.pageSize, total };
   }
 
-  async get(company: Company, conversationId: string): Promise<ConversationDetail> {
+  async get(company: Company, conversationId: string, user: User, membership: CompanyMember | null): Promise<ConversationDetail> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id_companyId: { id: conversationId, companyId: company.id } },
       include: { contact: true, assignedUser: userRefSelect },
     });
     if (!conversation) throw new NotFoundException(CONVERSATION_NOT_FOUND);
-    return toConversationDetail(conversation);
+    // Posição persistida: quantas conversas da MESMA empresa entraram antes na fila.
+    const queuePosition =
+      conversation.status === "QUEUED" && conversation.queuedAt
+        ? (await this.prisma.conversation.count({
+            where: {
+              companyId: company.id,
+              status: "QUEUED",
+              OR: [
+                { queuedAt: { lt: conversation.queuedAt } },
+                { queuedAt: conversation.queuedAt, id: { lt: conversation.id } },
+              ],
+            },
+          })) + 1
+        : null;
+    const manager = isTeamManager(membership);
+    const mine = conversation.assignedUserId === user.id;
+    const human = conversation.status !== "CLOSED" && conversation.mode !== "AI";
+    return toConversationDetail(conversation, {
+      queuePosition,
+      permissions: {
+        close: Boolean(membership) && human && (manager || mine),
+        transfer: Boolean(membership) && human && conversation.mode === "HUMAN" && (manager || mine),
+      },
+    });
   }
 
   /** Conversa iniciada pelo painel: é uma ação humana, então já nasce em HUMAN com o autor como responsável. */
-  async create(company: Company, contactId: string, actor: User): Promise<ConversationDetail> {
+  async create(company: Company, contactId: string, actor: User, membership: CompanyMember | null): Promise<ConversationDetail> {
     const contact = await this.prisma.contact.findUnique({ where: { id_companyId: { id: contactId, companyId: company.id } } });
     if (!contact) throw new NotFoundException("Contato não encontrado.");
 
+    const now = new Date();
     const conversation = await this.prisma.$transaction(async (tx) => {
+      // Só membro da empresa pode ser responsável (o SUPERADMIN cria sem responsável).
+      const owner = membership ? actor.id : null;
       const created = await tx.conversation.create({
-        data: { companyId: company.id, contactId: contact.id, mode: "HUMAN", assignedUserId: actor.id },
-        include: { contact: true, assignedUser: userRefSelect },
+        data: {
+          companyId: company.id,
+          contactId: contact.id,
+          mode: "HUMAN",
+          assignedUserId: owner,
+          status: owner ? "ASSIGNED" : "OPEN",
+          assignedAt: owner ? now : null,
+          cycleStartedAt: now,
+          lastActivityAt: now,
+        },
       });
+      if (owner) {
+        await tx.conversationAssignment.create({
+          data: { companyId: company.id, conversationId: created.id, userId: owner, startReason: "CREATED", actorUserId: actor.id, assignedAt: now },
+        });
+      }
       await this.audit.record(
         {
           action: AUDIT_ACTIONS.CONVERSATION_CREATED,
@@ -107,7 +183,7 @@ export class ConversationsService {
       );
       return created;
     });
-    return toConversationDetail(conversation);
+    return this.get(company, conversation.id, actor, membership);
   }
 
   /** Paginação por cursor, da mais recente para a mais antiga; devolve em ordem cronológica. */
@@ -133,12 +209,17 @@ export class ConversationsService {
   }
 
   /** Mensagem manual. Conversa do WhatsApp sai pela Cloud API; conversa interna fica só no sistema. */
-  async send(company: Company, conversationId: string, body: string, actor: User): Promise<MessageItem> {
+  async send(company: Company, conversationId: string, body: string, actor: User, membership: CompanyMember | null): Promise<MessageItem> {
     const target = await this.prisma.conversation.findUnique({
       where: { id_companyId: { id: conversationId, companyId: company.id } },
-      select: { channel: true },
+      select: { channel: true, status: true, assignedUserId: true },
     });
     if (!target) throw new NotFoundException(CONVERSATION_NOT_FOUND);
+    if (target.status === "CLOSED") throw new ConflictException(CLOSED_MESSAGE);
+    // Atendimento de outro funcionário: só o responsável ou quem administra a equipe responde.
+    if (target.status === "ASSIGNED" && target.assignedUserId !== actor.id && membership && !isTeamManager(membership)) {
+      throw new ForbiddenException(OTHER_AGENT);
+    }
     if (target.channel === "WHATSAPP") {
       return this.whatsapp.send(company, conversationId, body, { type: "AGENT", userId: actor.id });
     }
@@ -150,15 +231,16 @@ export class ConversationsService {
     return this.prisma.$transaction(async (tx) => {
       // Condicional e atômico: se o modo mudou entre a tela e o envio, nada é gravado.
       const { count } = await tx.conversation.updateMany({
-        where: { id: conversationId, companyId: company.id, mode: "HUMAN" },
-        data: { lastMessageAt: now, lastMessagePreview: messagePreview(body), unreadCount: 0 },
+        where: { id: conversationId, companyId: company.id, mode: "HUMAN", status: { not: "CLOSED" } },
+        data: { lastMessageAt: now, lastMessagePreview: messagePreview(body), unreadCount: 0, lastActivityAt: now },
       });
       if (count === 0) {
         const current = await tx.conversation.findUnique({
           where: { id_companyId: { id: conversationId, companyId: company.id } },
-          select: { mode: true },
+          select: { mode: true, status: true },
         });
         if (!current) throw new NotFoundException(CONVERSATION_NOT_FOUND);
+        if (current.status === "CLOSED") throw new ConflictException(CLOSED_MESSAGE);
         if (!humanMayReply(current.mode)) {
           throw new ConflictException("Assuma o atendimento para responder manualmente.");
         }
@@ -193,20 +275,35 @@ export class ConversationsService {
     conversationId: string,
     action: ConversationAction,
     actor: User,
+    membership: CompanyMember | null,
   ): Promise<ConversationDetail> {
-    const current = await this.requireConversation(company, conversationId);
-    if (!ACTION_ALLOWED_FROM[action].includes(current.mode)) {
-      throw new ConflictException(INVALID_ACTION_MESSAGE[action]);
-    }
-    const data = this.transition(action, current, actor);
+    await this.requireConversation(company, conversationId);
 
     await this.prisma.$transaction(async (tx) => {
-      // Concorrência otimista: só aplica se o modo ainda for o que foi lido.
+      await lockCompanyTeam(tx, company.id);
+      const current = await tx.conversation.findUniqueOrThrow({
+        where: { id_companyId: { id: conversationId, companyId: company.id } },
+        select: { id: true, mode: true, status: true, modeBeforePause: true, assignedUserId: true },
+      });
+      if (current.status === "CLOSED") throw new ConflictException(CLOSED_MESSAGE);
+      if (!ACTION_ALLOWED_FROM[action].includes(current.mode)) {
+        throw new ConflictException(INVALID_ACTION_MESSAGE[action]);
+      }
+      // Atendimento de outro funcionário: AGENT não mexe; OWNER/ADMIN (e o SUPERADMIN) podem. Exceção (Fase 2):
+      // "Assumir" uma conversa PAUSADA — ninguém a está atendendo — continua permitido, respeitando o limite.
+      const takingPaused = action === "ASSUME" && current.mode === "PAUSED";
+      if (current.status === "ASSIGNED" && current.assignedUserId !== actor.id && membership && !isTeamManager(membership) && !takingPaused) {
+        throw new ForbiddenException(OTHER_AGENT);
+      }
+      const data = await this.transition(tx, company.id, action, current, actor, membership);
+
+      // Concorrência otimista: só aplica se o modo e o estado ainda forem os que foram lidos.
       const { count } = await tx.conversation.updateMany({
-        where: { id: conversationId, companyId: company.id, mode: current.mode },
+        where: { id: conversationId, companyId: company.id, mode: current.mode, status: current.status },
         data,
       });
       if (count === 0) throw new ConflictException(CONCURRENT_CHANGE);
+      await this.recordAssignmentChange(tx, company.id, action, current, actor, data);
       // Fase 4: qualquer troca de modo invalida o trabalho pendente da IA nesta conversa. Uma resposta em
       // geração não é enviada: o envio exige a tarefa ainda RUNNING, conferida na mesma transação da mensagem.
       await tx.aiReplyTask.updateMany({
@@ -225,28 +322,105 @@ export class ConversationsService {
         tx,
       );
     });
-    return this.get(company, conversationId);
+    // Devolver para a IA libera uma vaga; reativar pode devolver uma conversa à fila.
+    await this.distribution.distribute(company.id);
+    return this.get(company, conversationId, actor, membership);
   }
 
-  private transition(
+  /** Fase 5: transferência manual (regras e trava no DistributionService). */
+  async transfer(company: Company, conversationId: string, toUserId: string, actor: User, membership: CompanyMember | null): Promise<ConversationDetail> {
+    await this.distribution.transfer(company, conversationId, toUserId, actor, membership);
+    return this.get(company, conversationId, actor, membership);
+  }
+
+  /** Fase 5: finalizar atendimento. */
+  async close(company: Company, conversationId: string, actor: User, membership: CompanyMember | null): Promise<ConversationDetail> {
+    await this.distribution.closeManually(company, conversationId, actor, membership);
+    return this.get(company, conversationId, actor, membership);
+  }
+
+  /** Destinatários elegíveis para transferir esta conversa (sem o responsável atual). */
+  async assignees(company: Company, conversationId: string): Promise<EligibleAssignee[]> {
+    const conversation = await this.requireConversation(company, conversationId);
+    return this.distribution.eligibleAssignees(company, conversation.assignedUserId);
+  }
+
+  private async transition(
+    tx: Prisma.TransactionClient,
+    companyId: string,
     action: ConversationAction,
-    current: { mode: ConversationMode; modeBeforePause: ConversationMode | null; assignedUserId: string | null },
+    current: CurrentRow,
     actor: User,
-  ): { mode: ConversationMode; modeBeforePause: ConversationMode | null; assignedUserId?: string | null; aiHandoffReason?: null; aiHandoffAt?: null } {
+    membership: CompanyMember | null,
+  ): Promise<Prisma.ConversationUncheckedUpdateManyInput & { mode: ConversationMode }> {
     switch (action) {
-      case "ASSUME":
-        return { mode: "HUMAN", modeBeforePause: null, assignedUserId: actor.id };
+      case "ASSUME": {
+        // Só um funcionário da empresa pode ser o responsável; o limite dele vale também aqui.
+        if (!membership) throw new ForbiddenException("Apenas funcionários da empresa podem assumir atendimentos.");
+        if (current.assignedUserId !== actor.id) {
+          const load = await tx.conversation.count({ where: { companyId, assignedUserId: actor.id, status: "ASSIGNED" } });
+          const member = await tx.companyMember.findUniqueOrThrow({ where: { id: membership.id }, select: { maxConcurrent: true } });
+          if (load >= member.maxConcurrent) throw new ConflictException("Você atingiu o seu limite de atendimentos simultâneos.");
+        }
+        const now = new Date();
+        return {
+          mode: "HUMAN",
+          modeBeforePause: null,
+          status: "ASSIGNED",
+          assignedUserId: actor.id,
+          assignedAt: now,
+          queuedAt: null,
+          queueNoticeAt: null,
+          queueNoticeError: null,
+          lastActivityAt: now,
+        };
+      }
       case "RETURN_TO_AI":
-        // Devolvida à IA: o aviso da última passagem automática deixa de valer.
-        return { mode: "AI", modeBeforePause: null, assignedUserId: null, aiHandoffReason: null, aiHandoffAt: null };
+        // Sai da fila e de qualquer responsável; o aviso da última passagem automática deixa de valer.
+        return { mode: "AI", modeBeforePause: null, ...releasedData, aiHandoffReason: null, aiHandoffAt: null };
       case "PAUSE":
         return { mode: "PAUSED", modeBeforePause: current.mode };
       case "RESUME": {
-        // Volta ao modo anterior à pausa; HUMAN sem responsável não faz sentido, então cai para AI.
+        // Volta ao modo anterior à pausa; HUMAN sem responsável nem fila não faz sentido, então cai para AI.
         const restored = current.modeBeforePause ?? "AI";
-        return restored === "HUMAN" && current.assignedUserId
+        const humanCycle = current.status === "ASSIGNED" || current.status === "QUEUED";
+        return restored === "HUMAN" && humanCycle
           ? { mode: "HUMAN", modeBeforePause: null }
-          : { mode: "AI", modeBeforePause: null, assignedUserId: null };
+          : { mode: "AI", modeBeforePause: null, ...releasedData };
+      }
+    }
+  }
+
+  private async recordAssignmentChange(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    action: ConversationAction,
+    current: CurrentRow,
+    actor: User,
+    data: Prisma.ConversationUncheckedUpdateManyInput,
+  ): Promise<void> {
+    const now = new Date();
+    if (action === "ASSUME" && current.assignedUserId !== actor.id) {
+      if (current.assignedUserId) await endOpenAssignment(tx, current.id, "TRANSFERRED", now);
+      await tx.conversationAssignment.create({
+        data: { companyId, conversationId: current.id, userId: actor.id, startReason: "ASSUME", actorUserId: actor.id, assignedAt: now },
+      });
+      return;
+    }
+    if (data.status === "OPEN") {
+      if (current.assignedUserId) await endOpenAssignment(tx, current.id, "RETURNED_TO_AI", now);
+      if (current.status === "QUEUED") {
+        await this.audit.record(
+          {
+            action: AUDIT_ACTIONS.CONVERSATION_DEQUEUED,
+            actorUserId: actor.id,
+            entityType: "Conversation",
+            entityId: current.id,
+            companyId,
+            metadata: { reason: "RETURNED_TO_AI" },
+          },
+          tx,
+        );
       }
     }
   }
@@ -254,7 +428,7 @@ export class ConversationsService {
   private async requireConversation(company: Company, conversationId: string) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id_companyId: { id: conversationId, companyId: company.id } },
-      select: { id: true, mode: true, modeBeforePause: true, assignedUserId: true },
+      select: { id: true, mode: true, status: true, modeBeforePause: true, assignedUserId: true },
     });
     if (!conversation) throw new NotFoundException(CONVERSATION_NOT_FOUND);
     return conversation;

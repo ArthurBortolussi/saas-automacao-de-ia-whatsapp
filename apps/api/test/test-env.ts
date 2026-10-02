@@ -23,5 +23,7 @@ export function useTestDatabaseEnv(): string {
   process.env["ANTHROPIC_API_KEY"] = "";
   process.env["ANTHROPIC_BASE_URL"] = "";
   process.env["AI_WORKER_INTERVAL_MS"] = "0";
+  // Fase 5: idem para o worker da equipe (teamWorker.drain()).
+  process.env["TEAM_WORKER_INTERVAL_MS"] = "0";
   return testUrl;
 }

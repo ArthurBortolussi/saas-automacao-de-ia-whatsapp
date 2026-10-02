@@ -14,7 +14,9 @@ import { WhatsAppApiError } from "./whatsapp-errors.js";
  */
 export type OutboundSender =
   | { type: "AGENT"; userId: string }
-  | { type: "AI"; inTransaction?: (tx: Prisma.TransactionClient) => Promise<void> };
+  | { type: "AI"; inTransaction?: (tx: Prisma.TransactionClient) => Promise<void> }
+  // Fase 5: texto operacional fixo (ex.: aviso de fila). Mesmas regras de janela e de falha.
+  | { type: "SYSTEM"; inTransaction?: (tx: Prisma.TransactionClient) => Promise<void> };
 
 const MAX_ATTEMPTS = 5;
 // Enquanto uma tentativa está em curso, a mensagem fica "reservada" por este tempo.
@@ -68,12 +70,13 @@ export class WhatsAppOutboundService {
         data: {
           lastMessageAt: now,
           lastMessagePreview: messagePreview(body),
+          lastActivityAt: now,
           // Resposta da IA não marca como lidas as mensagens do cliente: a equipe continua vendo o que chegou.
           ...(sender.type === "AGENT" ? { unreadCount: 0 } : {}),
         },
       });
       if (count === 0) throw new ConflictException("A conversa foi alterada por outra pessoa. Atualize a página e tente novamente.");
-      if (sender.type === "AI" && sender.inTransaction) await sender.inTransaction(tx);
+      if (sender.type !== "AGENT" && sender.inTransaction) await sender.inTransaction(tx);
 
       const message = await tx.message.create({
         data: {
@@ -168,6 +171,9 @@ export class WhatsAppOutboundService {
     }
     if (sender.type === "AI" && !aiMayReply(mode)) {
       throw new ConflictException("A IA só pode responder conversas no modo IA.");
+    }
+    if (sender.type === "SYSTEM" && mode === "PAUSED") {
+      throw new ConflictException("Conversa pausada: nenhuma mensagem automática é enviada.");
     }
   }
 

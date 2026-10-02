@@ -26,6 +26,11 @@ const envSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24 * 90).default(168),
   TRUST_PROXY: trustProxySchema,
   SESSION_COOKIE_SECURE: z.enum(["true", "false"]).optional(),
+  // Fase 5: ciclo do worker da equipe (fila, avisos, encerramento por inatividade). 0 desliga o timer.
+  TEAM_WORKER_INTERVAL_MS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().min(0).max(600_000).default(5000),
+  ),
 }).extend(whatsappEnvSchema.shape).extend(aiEnvSchema.shape);
 
 type ParsedEnv = z.output<typeof envSchema>;

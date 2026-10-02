@@ -14,6 +14,9 @@ import type {
   AiHandoffReason,
   AiRunResult,
   AiTone,
+  AgentAvailability,
+  ConversationCloseReason,
+  ConversationStatus,
 } from "./enums.js";
 
 // Formatos de resposta da API. Datas trafegam como string ISO.
@@ -142,6 +145,9 @@ export interface ConversationSummary {
   id: string;
   channel: ConversationChannel;
   mode: ConversationMode;
+  /** Fase 5: estado operacional (fila, atribuída, encerrada). */
+  status: ConversationStatus;
+  queuedAt: string | null;
   unreadCount: number;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
@@ -160,6 +166,14 @@ export interface ConversationDetail extends Omit<ConversationSummary, "contact">
   /** Última passagem automática da IA para humano (motivo), se houver. */
   aiHandoffReason: AiHandoffReason | null;
   aiHandoffAt: string | null;
+  /** Fase 5: posição na fila da empresa (1 = próxima), quando QUEUED. */
+  queuePosition: number | null;
+  assignedAt: string | null;
+  closedAt: string | null;
+  closeReason: ConversationCloseReason | null;
+  lastActivityAt: string | null;
+  /** O que o usuário atual pode fazer nesta conversa (o backend confere de novo). */
+  permissions: { close: boolean; transfer: boolean };
 }
 
 export interface MessageItem {
@@ -322,4 +336,40 @@ export interface AiUsageSummary {
   daily: { date: string; runs: number; estimatedCostUsd: string }[];
   recent: AiRunItem[];
   pricing: { model: string; inputPerMTok: number; outputPerMTok: number; cacheWritePerMTok: number; cacheReadPerMTok: number } | null;
+}
+
+// ---------------------------------------------------------------- FASE 5
+
+export interface TeamMemberItem {
+  userId: string;
+  name: string;
+  /** Só para OWNER/ADMIN e SUPERADMIN. */
+  email: string | null;
+  role: MemberRole;
+  active: boolean;
+  /** Ainda não trocou a senha provisória. */
+  mustChangePassword: boolean | null;
+  availability: AgentAvailability;
+  availabilityChangedAt: string | null;
+  maxConcurrent: number;
+  canAttend: boolean;
+  /** Conversas atribuídas agora (ocupam vaga). */
+  activeConversations: number;
+  isMe: boolean;
+}
+
+export interface TeamResponse {
+  members: TeamMemberItem[];
+  me: TeamMemberItem | null;
+  /** OWNER/ADMIN da empresa. O SUPERADMIN só consulta. */
+  canManage: boolean;
+  queue: { waiting: number };
+  settings: { inactivityTimeoutMinutes: number };
+}
+
+export interface EligibleAssignee {
+  userId: string;
+  name: string;
+  activeConversations: number;
+  maxConcurrent: number;
 }

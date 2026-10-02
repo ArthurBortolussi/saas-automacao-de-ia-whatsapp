@@ -6,6 +6,8 @@ import { aiMayReply, DEFAULT_HANDOFF_MESSAGE, isServiceWindowOpen, isWithinAiSch
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { ENV, type Env } from "../config/env.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { queuedData } from "../team/conversation-state.js";
+import { ConversationEvents } from "../whatsapp/conversation-events.js";
 import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
 import { AiModelClient, type ModelOutcome } from "./ai-model.client.js";
 import { AiSettingsService, type ResolvedAiSettings } from "./ai-settings.service.js";
@@ -68,6 +70,7 @@ export class AiReplyService {
     private readonly model: AiModelClient,
     private readonly outbound: WhatsAppOutboundService,
     private readonly audit: AuditService,
+    private readonly events: ConversationEvents,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -274,6 +277,8 @@ export class AiReplyService {
         type: "AI",
         inTransaction: transfer,
       });
+      // Fase 5: a conversa entrou na fila humana; o worker da equipe distribui (e avisa o cliente, se preciso).
+      this.events.emitHumanQueued(context.companyId);
       return;
     } catch (error) {
       if (!(error instanceof HttpException)) {
@@ -288,14 +293,27 @@ export class AiReplyService {
       if (error instanceof RunInvalidatedError) return this.discard(runRowId);
       throw error;
     }
+    this.events.emitHumanQueued(context.companyId);
   }
 
   private async switchToHuman(tx: Prisma.TransactionClient, context: RunContext, reason: AiHandoffReason): Promise<void> {
     const { count } = await tx.conversation.updateMany({
-      where: { id: context.conversationId, companyId: context.companyId, mode: "AI" },
-      data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: reason, aiHandoffAt: new Date() },
+      where: { id: context.conversationId, companyId: context.companyId, mode: "AI", status: "OPEN" },
+      // Fase 5: além de mudar para HUMAN, entra na fila para a distribuição automática.
+      data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: reason, aiHandoffAt: new Date(), ...queuedData(new Date()) },
     });
     if (count === 0) return;
+    await this.audit.record(
+      {
+        action: AUDIT_ACTIONS.CONVERSATION_QUEUED,
+        actorUserId: null,
+        entityType: "Conversation",
+        entityId: context.conversationId,
+        companyId: context.companyId,
+        metadata: { reason: "AI_HANDOFF" },
+      },
+      tx,
+    );
     await this.audit.record(
       {
         action: AUDIT_ACTIONS.CONVERSATION_AI_HANDOFF,

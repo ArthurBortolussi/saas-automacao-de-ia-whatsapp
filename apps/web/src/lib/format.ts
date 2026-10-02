@@ -1,4 +1,7 @@
 import type {
+  AgentAvailability,
+  ConversationCloseReason,
+  ConversationStatus,
   AiHandoffReason,
   AiRunResult,
   AiTone,
@@ -135,3 +138,23 @@ export function formatUsd(value: string | null): string {
 export function formatNumber(value: number | null): string {
   return value === null ? "—" : value.toLocaleString("pt-BR");
 }
+
+// ---------------------------------------------------------------- FASE 5
+
+export const AVAILABILITY_LABEL: Record<AgentAvailability, string> = {
+  AVAILABLE: "Disponível",
+  BUSY: "Ocupado",
+  AWAY: "Ausente",
+};
+
+export const CONVERSATION_STATUS_LABEL: Record<ConversationStatus, string> = {
+  OPEN: "Em andamento",
+  QUEUED: "Na fila",
+  ASSIGNED: "Atribuída",
+  CLOSED: "Encerrada",
+};
+
+export const CLOSE_REASON_LABEL: Record<ConversationCloseReason, string> = {
+  MANUAL: "finalizada manualmente",
+  INACTIVITY: "finalizada por inatividade",
+};

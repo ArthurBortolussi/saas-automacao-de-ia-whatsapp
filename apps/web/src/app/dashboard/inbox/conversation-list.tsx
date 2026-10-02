@@ -3,15 +3,19 @@ import { cn } from "@arthur-ai/ui/lib/utils";
 import { Inbox } from "lucide-react";
 import Link from "next/link";
 import { ChannelBadge } from "@/components/channel-badge";
-import { ConversationModeBadge } from "@/components/contact-badges";
+import { ConversationModeBadge, ConversationStatusBadge } from "@/components/contact-badges";
 import { formatListTime } from "@/lib/format";
 
 const FILTERS: { value: InboxFilter; label: string }[] = [
   { value: "all", label: "Todas" },
+  { value: "mine", label: "Minhas" },
+  { value: "queued", label: "Na fila" },
   { value: "ai", label: "IA atendendo" },
   { value: "human", label: "Humano atendendo" },
   { value: "paused", label: "Pausadas" },
   { value: "unread", label: "Não lidas" },
+  { value: "unassigned", label: "Sem responsável" },
+  { value: "closed", label: "Encerradas" },
 ];
 
 const EMPTY_MESSAGE: Record<InboxFilter, string> = {
@@ -20,6 +24,10 @@ const EMPTY_MESSAGE: Record<InboxFilter, string> = {
   human: "Nenhuma conversa com atendimento humano.",
   paused: "Nenhuma conversa pausada.",
   unread: "Tudo lido por aqui.",
+  mine: "Nenhum atendimento atribuído a você.",
+  queued: "Ninguém aguardando na fila.",
+  unassigned: "Nenhuma conversa humana sem responsável.",
+  closed: "Nenhum atendimento encerrado.",
 };
 
 interface ConversationListProps {
@@ -90,9 +98,13 @@ export function ConversationList({ conversations, filter, selectedId }: Conversa
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <ConversationModeBadge mode={conversation.mode} className="text-[11px]" />
                     <ChannelBadge channel={conversation.channel} />
+                    <ConversationStatusBadge status={conversation.status} />
+                    {conversation.status === "ASSIGNED" && conversation.assignedUser ? (
+                      <span className="truncate text-[11px] text-muted-foreground">{conversation.assignedUser.name}</span>
+                    ) : null}
                   </div>
                 </Link>
               </li>

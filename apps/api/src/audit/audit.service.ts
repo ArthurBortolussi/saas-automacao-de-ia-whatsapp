@@ -22,13 +22,27 @@ export const AUDIT_ACTIONS = {
   KNOWLEDGE_UPDATED: "knowledge.updated",
   KNOWLEDGE_DELETED: "knowledge.deleted",
   CONVERSATION_AI_HANDOFF: "conversation.ai_handoff",
+  // Fase 5
+  MEMBER_ROLE_CHANGED: "team.member_role_changed",
+  MEMBER_ACTIVATED: "team.member_activated",
+  MEMBER_DEACTIVATED: "team.member_deactivated",
+  MEMBER_LIMIT_CHANGED: "team.member_limit_changed",
+  MEMBER_CAN_ATTEND_CHANGED: "team.member_can_attend_changed",
+  MEMBER_AVAILABILITY_CHANGED: "team.availability_changed",
+  TEAM_SETTINGS_UPDATED: "team.settings_updated",
+  CONVERSATION_QUEUED: "conversation.queued",
+  CONVERSATION_DEQUEUED: "conversation.dequeued",
+  CONVERSATION_ASSIGNED: "conversation.assigned",
+  CONVERSATION_TRANSFERRED: "conversation.transferred",
+  CONVERSATION_CLOSED: "conversation.closed",
+  CONVERSATION_REOPENED: "conversation.reopened",
 } as const;
 type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   action: AuditAction;
   actorUserId: string | null;
-  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry";
+  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry" | "TeamSettings";
   entityId: string | null;
   companyId?: string | null;
   // Nunca inclua senhas, hashes ou tokens aqui.

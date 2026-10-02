@@ -89,7 +89,13 @@ export class CompaniesService {
     }));
   }
 
-  async createMember(company: Company, input: CreateCompanyMemberInput, actor: User): Promise<CompanyMemberItem> {
+  /** Também usado pela aba Equipe (Fase 5): mesma senha provisória com troca obrigatória no primeiro acesso. */
+  async createMember(
+    company: Company,
+    input: CreateCompanyMemberInput,
+    actor: User,
+    options: { maxConcurrent?: number; canAttend?: boolean } = {},
+  ): Promise<CompanyMemberItem> {
     const passwordHash = await hashPassword(input.password);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -97,7 +103,7 @@ export class CompaniesService {
           data: { name: input.name, email: input.email, passwordHash, globalRole: "USER", mustChangePassword: true },
         });
         const member = await tx.companyMember.create({
-          data: { companyId: company.id, userId: user.id, role: input.role },
+          data: { companyId: company.id, userId: user.id, role: input.role, ...options },
         });
         await this.audit.record(
           {

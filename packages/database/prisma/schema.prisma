@@ -95,23 +95,38 @@ model Company {
   aiSettings      AiSettings?
   knowledge       KnowledgeEntry[]
   aiReplyTasks    AiReplyTask[]
+  assignments     ConversationAssignment[]
+  teamSettings    TeamSettings?
   aiRuns          AiRun[]
 
   @@index([status])
 }
 
 model CompanyMember {
-  id        String     @id @default(uuid(7)) @db.Uuid
-  companyId String     @db.Uuid
+  id                    String            @id @default(uuid(7)) @db.Uuid
+  companyId             String            @db.Uuid
   // FASE 1: um usuário pertence a no máximo uma empresa. A autorização usa sempre o par
   // (userId, companyId); remover este @unique no futuro não exige mudar os guards.
-  userId    String     @unique @db.Uuid
-  role      MemberRole
-  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  userId                String            @unique @db.Uuid
+  role                  MemberRole
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  // ---- FASE 5: atendimento humano
+  // Escolhida pelo próprio funcionário e persistida (não depende de navegador aberto). Nasce AWAY:
+  // ninguém recebe conversas antes de se declarar disponível.
+  availability          AgentAvailability @default(AWAY)
+  availabilityChangedAt DateTime?         @db.Timestamptz(3)
+  // Teto de atendimentos simultâneos (conversas ASSIGNED a ele), definido por OWNER/ADMIN.
+  maxConcurrent         Int               @default(5)
+  // Permissão para receber atendimentos (distribuição e transferências).
+  canAttend             Boolean           @default(true)
+  // Desempate da distribuição: quem recebeu há mais tempo recebe primeiro (rotação).
+  lastAssignedAt        DateTime?         @db.Timestamptz(3)
 
   // Restrict: excluir empresa/usuário com vínculo deve ser uma decisão explícita, nunca cascata acidental.
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  company               Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user                  User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  // Conversas sob responsabilidade deste membro (FK composta garante a mesma empresa).
+  assignedConversations Conversation[]
 
   // Também serve como índice para buscas por companyId (coluna líder).
   @@unique([companyId, userId])
@@ -202,37 +217,59 @@ model Contact {
 }
 
 model Conversation {
-  id                 String              @id @default(uuid(7)) @db.Uuid
-  companyId          String              @db.Uuid
-  contactId          String              @db.Uuid
-  channel            ConversationChannel @default(INTERNAL)
-  mode               ConversationMode    @default(AI)
+  id                 String                   @id @default(uuid(7)) @db.Uuid
+  companyId          String                   @db.Uuid
+  contactId          String                   @db.Uuid
+  channel            ConversationChannel      @default(INTERNAL)
+  mode               ConversationMode         @default(AI)
   // Modo a restaurar em "Reativar atendimento".
   modeBeforePause    ConversationMode?
-  assignedUserId     String?             @db.Uuid
+  assignedUserId     String?                  @db.Uuid
   // Desnormalizados para a lista da inbox não precisar ler mensagens.
-  lastMessageAt      DateTime?           @db.Timestamptz(3)
-  lastMessagePreview String?             @db.VarChar(160)
-  unreadCount        Int                 @default(0)
+  lastMessageAt      DateTime?                @db.Timestamptz(3)
+  lastMessagePreview String?                  @db.VarChar(160)
+  unreadCount        Int                      @default(0)
   // Última mensagem do cliente: base da janela de atendimento de 24h do WhatsApp.
-  lastInboundAt      DateTime?           @db.Timestamptz(3)
+  lastInboundAt      DateTime?                @db.Timestamptz(3)
   // Fase 4: última passagem automática da IA para humano (motivo e quando).
   aiHandoffReason    AiHandoffReason?
-  aiHandoffAt        DateTime?           @db.Timestamptz(3)
-  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  aiHandoffAt        DateTime?                @db.Timestamptz(3)
+  // ---- FASE 5: estado operacional (independente do modo e da disponibilidade do funcionário)
+  status             ConversationStatus       @default(OPEN)
+  // Entrada na fila humana (ordem de chegada); só preenchido em QUEUED.
+  queuedAt           DateTime?                @db.Timestamptz(3)
+  // Aviso de espera ao cliente: enviado (uma vez por entrada na fila) ou motivo de não ter sido enviado.
+  queueNoticeAt      DateTime?                @db.Timestamptz(3)
+  queueNoticeError   String?                  @db.VarChar(40)
+  assignedAt         DateTime?                @db.Timestamptz(3)
+  // Início do ciclo de atendimento atual (criação ou reabertura).
+  cycleStartedAt     DateTime?                @db.Timestamptz(3)
+  // Última atividade relevante (mensagem recebida/enviada, atribuição): base do encerramento por inatividade.
+  lastActivityAt     DateTime?                @db.Timestamptz(3)
+  closedAt           DateTime?                @db.Timestamptz(3)
+  closeReason        ConversationCloseReason?
+  closedByUserId     String?                  @db.Uuid
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                 @updatedAt @db.Timestamptz(3)
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company        Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   // FK composta: o contato precisa ser da MESMA empresa da conversa (garantido pelo banco).
-  contact      Contact       @relation(fields: [contactId, companyId], references: [id, companyId], onDelete: Restrict)
+  contact        Contact                  @relation(fields: [contactId, companyId], references: [id, companyId], onDelete: Restrict)
   // SetNull: remover o usuário não apaga o atendimento, só o responsável.
-  assignedUser User?         @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
-  messages     Message[]
-  aiReplyTasks AiReplyTask[]
-  aiRuns       AiRun[]
+  assignedUser   User?                    @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  // FASE 5: o responsável precisa ser membro da MESMA empresa (garantido pelo banco).
+  assignedMember CompanyMember?           @relation(fields: [companyId, assignedUserId], references: [companyId, userId], onDelete: Restrict, map: "Conversation_assignedMember_fkey")
+  messages       Message[]
+  aiReplyTasks   AiReplyTask[]
+  aiRuns         AiRun[]
+  assignments    ConversationAssignment[]
 
   @@unique([id, companyId])
   @@index([companyId, lastMessageAt])
+  // Fila por empresa em ordem de chegada; carga de cada funcionário; varredura de inatividade.
+  @@index([companyId, status, queuedAt])
+  @@index([companyId, assignedUserId, status])
+  @@index([status, lastActivityAt])
   @@index([companyId, mode])
   @@index([contactId, channel])
 }
@@ -484,4 +521,76 @@ model AiRun {
 
   @@index([companyId, createdAt])
   @@index([conversationId])
+}
+
+// ---------------------------------------------------------------- FASE 5
+
+/// Disponibilidade escolhida pelo funcionário. Só AVAILABLE recebe conversas novas; BUSY/AWAY mantêm as atuais.
+enum AgentAvailability {
+  AVAILABLE
+  BUSY
+  AWAY
+}
+
+/// Estado operacional da conversa (não confundir com o modo AI/HUMAN/PAUSED).
+/// OPEN: em andamento sem atendimento humano alocado (IA, ou humana antiga sem responsável).
+/// QUEUED: aguardando um funcionário. ASSIGNED: com um funcionário. CLOSED: atendimento finalizado.
+enum ConversationStatus {
+  OPEN
+  QUEUED
+  ASSIGNED
+  CLOSED
+}
+
+enum ConversationCloseReason {
+  MANUAL
+  INACTIVITY
+}
+
+/// Como um período de responsabilidade começou.
+enum AssignmentStartReason {
+  AUTO
+  TRANSFER
+  ASSUME
+  CREATED
+}
+
+/// Como um período de responsabilidade terminou.
+enum AssignmentEndReason {
+  TRANSFERRED
+  CLOSED
+  RETURNED_TO_AI
+  REQUEUED
+}
+
+/// Histórico de responsáveis: um registro por período em que um funcionário cuidou da conversa.
+/// A fonte da verdade do responsável atual é Conversation.assignedUserId; isto é o histórico.
+model ConversationAssignment {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  companyId      String                @db.Uuid
+  conversationId String                @db.Uuid
+  userId         String                @db.Uuid
+  startReason    AssignmentStartReason
+  // Quem fez a ação (nulo = sistema/distribuição automática).
+  actorUserId    String?               @db.Uuid
+  assignedAt     DateTime              @default(now()) @db.Timestamptz(3)
+  endedAt        DateTime?             @db.Timestamptz(3)
+  endReason      AssignmentEndReason?
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId, companyId], references: [id, companyId], onDelete: Restrict)
+
+  @@index([conversationId, assignedAt])
+  @@index([companyId, userId, assignedAt])
+}
+
+/// Configurações do atendimento humano por empresa. Sem linha = padrões.
+model TeamSettings {
+  companyId                String   @id @db.Uuid
+  // Atendimento atribuído sem atividade por este tempo é finalizado automaticamente.
+  inactivityTimeoutMinutes Int      @default(240)
+  createdAt                DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 }

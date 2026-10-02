@@ -1,9 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Prisma, type ConversationMode, type MessageDeliveryStatus, type WhatsAppAccount } from "@arthur-ai/database";
+import { Prisma, type ConversationMode, type ConversationStatus, type MessageDeliveryStatus, type WhatsAppAccount } from "@arthur-ai/database";
 import { aiMayReply } from "@arthur-ai/shared";
+import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { uniqueViolationIndex } from "../common/prisma-errors.js";
 import { messagePreview } from "../conversations/conversation.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { queuedData, releasedData } from "../team/conversation-state.js";
 import { ConversationEvents } from "./conversation-events.js";
 import { phoneVariants } from "./phone-variants.js";
 import {
@@ -76,6 +78,7 @@ export class WebhookProcessorService {
     private readonly prisma: PrismaService,
     private readonly accounts: WhatsAppAccountsService,
     private readonly events: ConversationEvents,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -135,21 +138,11 @@ export class WebhookProcessorService {
 
     const at = metaTime(message.timestamp);
     const body = inboundBody(message);
-    let created: { conversationId: string; messageId: string };
+    let created: { conversationId: string; messageId: string; queued: boolean };
     try {
       created = await this.prisma.$transaction(async (tx) => {
         const contact = await this.findOrCreateContact(tx, companyId, message.from, profileName);
-        const conversation =
-          (await tx.conversation.findFirst({
-            where: { companyId, contactId: contact.id, channel: "WHATSAPP" },
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            select: { id: true, mode: true },
-          })) ??
-          (await tx.conversation.create({
-            // Fase 4: conversa nova nasce no modo padrão configurado para a empresa (sem configuração: IA).
-            data: { companyId, contactId: contact.id, channel: "WHATSAPP", mode: await defaultConversationMode(tx, companyId) },
-            select: { id: true, mode: true },
-          }));
+        const conversation = await this.conversationForInbound(tx, companyId, contact.id);
 
         const row = await tx.message.create({
           data: {
@@ -164,7 +157,8 @@ export class WebhookProcessorService {
           },
           select: { id: true },
         });
-        await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 } } });
+        // Fase 5: mensagem do cliente é atividade relevante (adia o encerramento por inatividade).
+        await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 }, lastActivityAt: new Date() } });
         // Mensagens podem chegar fora de ordem: só avança "última mensagem"/janela se esta for mais nova.
         await tx.conversation.updateMany({
           where: { id: conversation.id, OR: [{ lastMessageAt: null }, { lastMessageAt: { lte: at } }] },
@@ -179,14 +173,89 @@ export class WebhookProcessorService {
         if (aiMayReply(conversation.mode)) {
           await tx.aiReplyTask.create({ data: { companyId, conversationId: conversation.id, messageId: row.id } });
         }
-        return { conversationId: conversation.id, messageId: row.id };
+        return { conversationId: conversation.id, messageId: row.id, queued: conversation.queued };
       });
     } catch (error) {
       // Corrida com outro processamento do mesmo evento: a outra transação já gravou.
       if (uniqueViolationIndex(error) === "Message_companyId_externalId_key") return;
       throw error;
     }
-    this.events.emitInboundMessage({ companyId, ...created });
+    this.events.emitInboundMessage({ companyId, conversationId: created.conversationId, messageId: created.messageId });
+    if (created.queued) this.events.emitHumanQueued(companyId);
+  }
+
+  /**
+   * Conversa que recebe a mensagem (mesma conversa por contato: o histórico é preservado). Fase 5:
+   * - nova: nasce no modo padrão da empresa; se for HUMAN, já entra na fila;
+   * - encerrada: reabre num ciclo novo no modo padrão (IA, ou fila humana), sem o responsável antigo;
+   * - humana antiga sem responsável (dados de antes da Fase 5): entra na fila agora que o cliente escreveu.
+   * A linha da conversa é travada (FOR UPDATE): um encerramento simultâneo espera ou já foi visto, e a mesma
+   * mensagem reenviada pela Meta não reabre nada (o wamid já existe e a transação inteira é desfeita).
+   */
+  private async conversationForInbound(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    contactId: string,
+  ): Promise<{ id: string; mode: ConversationMode; queued: boolean }> {
+    const now = new Date();
+    const existing = await tx.conversation.findFirst({
+      where: { companyId, contactId, channel: "WHATSAPP" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true },
+    });
+    if (!existing) {
+      const mode = await defaultConversationMode(tx, companyId);
+      const human = mode === "HUMAN";
+      const conversation = await tx.conversation.create({
+        data: { companyId, contactId, channel: "WHATSAPP", mode, cycleStartedAt: now, lastActivityAt: now, ...(human ? queuedData(now) : {}) },
+        select: { id: true },
+      });
+      if (human) await this.recordQueued(tx, companyId, conversation.id, "NEW_CONVERSATION");
+      return { id: conversation.id, mode, queued: human };
+    }
+
+    const [current] = await tx.$queryRaw<{ mode: ConversationMode; status: ConversationStatus }[]>`
+      SELECT "mode", "status" FROM "Conversation" WHERE "id" = ${existing.id}::uuid FOR UPDATE`;
+    if (!current) throw new Error("Conversa sumiu durante o recebimento.");
+
+    if (current.status === "CLOSED") {
+      const mode = await defaultConversationMode(tx, companyId);
+      const human = mode === "HUMAN";
+      await tx.conversation.update({
+        where: { id: existing.id },
+        data: {
+          mode,
+          modeBeforePause: null,
+          ...(human ? queuedData(now) : releasedData),
+          closedAt: null,
+          closeReason: null,
+          closedByUserId: null,
+          aiHandoffReason: null,
+          aiHandoffAt: null,
+          cycleStartedAt: now,
+        },
+      });
+      await this.audit.record(
+        { action: AUDIT_ACTIONS.CONVERSATION_REOPENED, actorUserId: null, entityType: "Conversation", entityId: existing.id, companyId, metadata: { mode } },
+        tx,
+      );
+      if (human) await this.recordQueued(tx, companyId, existing.id, "REOPENED");
+      return { id: existing.id, mode, queued: human };
+    }
+
+    if (current.mode === "HUMAN" && current.status === "OPEN") {
+      await tx.conversation.update({ where: { id: existing.id }, data: queuedData(now) });
+      await this.recordQueued(tx, companyId, existing.id, "CUSTOMER_MESSAGE");
+      return { id: existing.id, mode: current.mode, queued: true };
+    }
+    return { id: existing.id, mode: current.mode, queued: false };
+  }
+
+  private recordQueued(tx: Prisma.TransactionClient, companyId: string, conversationId: string, reason: string): Promise<void> {
+    return this.audit.record(
+      { action: AUDIT_ACTIONS.CONVERSATION_QUEUED, actorUserId: null, entityType: "Conversation", entityId: conversationId, companyId, metadata: { reason } },
+      tx,
+    );
   }
 
   private async findOrCreateContact(tx: Prisma.TransactionClient, companyId: string, waId: string, profileName: string | undefined) {
