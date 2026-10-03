@@ -3,7 +3,6 @@
 import {
   createTeamMemberSchema,
   MEMBER_ROLES,
-  updateTeamSettingsSchema,
   type MemberRole,
   type TeamMemberItem,
   type TeamResponse,
@@ -156,7 +155,7 @@ export function TeamManager({ companyId, team, inboxHrefPrefix }: Props) {
         </Table>
       </Card>
 
-      {team.canManage ? <SettingsForm companyId={companyId} minutes={team.settings.inactivityTimeoutMinutes} /> : null}
+      {team.me ? <SettingsLink canEdit={team.canEditSettings} /> : null}
     </div>
   );
 }
@@ -337,45 +336,20 @@ function EditMember({
   );
 }
 
-function SettingsForm({ companyId, minutes }: { companyId: string; minutes: number }) {
-  const { errors, setErrors, message, pending, run } = useMutation();
-  const [saved, setSaved] = useState(false);
-
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const parsed = updateTeamSettingsSchema.safeParse({ inactivityTimeoutMinutes: Number(form.get("inactivityTimeoutMinutes")) });
-    setSaved(false);
-    if (!parsed.success) {
-      setErrors(zodFieldErrors(parsed.error));
-      return;
-    }
-    run("PATCH", `/companies/${companyId}/team/settings`, parsed.data, () => {
-      setSaved(true);
-    });
-  }
-
+/** Fase 7: o prazo de inatividade é editado em Configurações → Atendimento (um único controle para o dado). */
+function SettingsLink({ canEdit }: { canEdit: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Encerramento automático</CardTitle>
+        <CardTitle className="text-base">Encerramento automático e fila</CardTitle>
         <CardDescription>
-          Atendimentos atribuídos sem nenhuma mensagem (do cliente ou da equipe) por este tempo são finalizados e liberam a vaga do
-          funcionário. Se o cliente voltar a escrever, a conversa é reaberta.
+          O prazo de inatividade da equipe e o tempo máximo de espera na fila ficam em{" "}
+          <Link href="/dashboard/settings/service" prefetch={false} className="font-medium text-foreground underline underline-offset-4">
+            Configurações → Atendimento
+          </Link>
+          {canEdit ? "." : " (somente o proprietário ou quem tem a permissão \"Atendimento e fila\" altera)."}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} noValidate className="flex flex-wrap items-end gap-4">
-          <Field id="inactivityTimeoutMinutes" label="Minutos sem atividade" error={errors["inactivityTimeoutMinutes"]}>
-            <Input id="inactivityTimeoutMinutes" name="inactivityTimeoutMinutes" type="number" min={5} max={43200} defaultValue={minutes} className="w-40" />
-          </Field>
-          <Button type="submit" disabled={pending}>
-            {pending ? "Salvando…" : "Salvar"}
-          </Button>
-          {message ? <p className="w-full text-sm text-destructive">{message}</p> : null}
-          {saved ? <p className="w-full text-sm text-muted-foreground">Salvo.</p> : null}
-        </form>
-      </CardContent>
     </Card>
   );
 }

@@ -43,23 +43,29 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const common = {
+    const base = {
       assistantName: form.get("assistantName"),
       tone: form.get("tone"),
       instructions: form.get("instructions"),
       handoffMessage: form.get("handoffMessage"),
+      inactivityTimeoutMinutes: Number(form.get("inactivityTimeoutMinutes")),
+    };
+    // Fase 7: na empresa, o horário da IA fica na aba Horários e o fuso na aba Empresa. O Superadmin edita tudo aqui.
+    const limit = String(form.get("monthlyLimitUsd") ?? "").trim().replace(",", ".");
+    const adminOnly = {
       alwaysOn: form.get("alwaysOn") === "on",
       timezone: form.get("timezone"),
-      inactivityTimeoutMinutes: Number(form.get("inactivityTimeoutMinutes")),
       // Em 24 horas, dias e horários ficam como estavam (não precisam ser válidos agora).
       ...(form.get("alwaysOn") === "on"
         ? {}
         : { scheduleDays: form.getAll("scheduleDays").map(Number), scheduleStart: form.get("scheduleStart"), scheduleEnd: form.get("scheduleEnd") }),
+      enabled: form.get("enabled") === "on",
+      defaultConversationMode: form.get("defaultConversationMode"),
+      // Só envia o limite quando mudou (cada alteração é auditada como mudança de limite).
+      ...(limit === (status.budget?.limitUsd ?? "") ? {} : { monthlyLimitUsd: limit === "" ? null : Number(limit) }),
     };
-    const parsed =
-      scope === "admin"
-        ? updateAdminAiSettingsSchema.safeParse({ ...common, enabled: form.get("enabled") === "on", defaultConversationMode: form.get("defaultConversationMode") })
-        : updateCompanyAiSettingsSchema.safeParse(common);
+    const common = scope === "admin" ? { ...base, ...adminOnly } : base;
+    const parsed = scope === "admin" ? updateAdminAiSettingsSchema.safeParse(common) : updateCompanyAiSettingsSchema.safeParse(common);
     setMessage(null);
     if (!parsed.success) {
       setErrors(zodFieldErrors(parsed.error));
@@ -67,7 +73,7 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
     }
     setErrors({});
     // Envia o valor bruto (strings vazias limpam campos opcionais); o backend valida de novo.
-    const body = scope === "admin" ? { ...common, enabled: form.get("enabled") === "on", defaultConversationMode: form.get("defaultConversationMode") } : common;
+    const body = common;
     const path = scope === "admin" ? `/admin/companies/${companyId}/ai/settings` : `/companies/${companyId}/ai/settings`;
     startTransition(async () => {
       const result = await apiMutate("PATCH", path, body);
@@ -100,6 +106,22 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
               <span className="block text-muted-foreground">Desligada, nenhuma resposta automática é gerada (nem cobrada).</span>
             </span>
           </label>
+          <Field
+            id="monthlyLimitUsd"
+            label="Limite mensal de custo estimado (USD)"
+            optional
+            error={errors["monthlyLimitUsd"]}
+            hint="Em branco = sem limite. Ao atingir 100%, a IA não inicia novas respostas e os atendimentos vão para a equipe."
+          >
+            <Input
+              id="monthlyLimitUsd"
+              name="monthlyLimitUsd"
+              inputMode="decimal"
+              defaultValue={status.budget?.limitUsd ?? ""}
+              placeholder={status.budget?.platformDefaultUsd ? `padrão: ${status.budget.platformDefaultUsd}` : "sem limite"}
+              className="w-48"
+            />
+          </Field>
           <Field id="defaultConversationMode" label="Modo inicial das novas conversas" error={errors["defaultConversationMode"]} hint="Vale só para conversas novas; as que já existem não mudam.">
             <NativeSelect id="defaultConversationMode" name="defaultConversationMode" defaultValue={settings.defaultConversationMode}>
               {DEFAULT_CONVERSATION_MODES.map((mode) => (
@@ -141,6 +163,7 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
         </Field>
       </fieldset>
 
+      {scope === "admin" ? (
       <fieldset className="space-y-4 rounded-md border p-4" disabled={readOnly}>
         <legend className="px-1 text-sm font-medium">Horário em que a IA responde</legend>
         <p className="text-xs text-muted-foreground">
@@ -178,7 +201,7 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
             <Field id="scheduleEnd" label="Término" error={errors["scheduleEnd"]} hint="Se for menor que o início, vira a noite.">
               <Input id="scheduleEnd" name="scheduleEnd" type="time" defaultValue={settings.scheduleEnd} />
             </Field>
-            <Field id="timezone" label="Fuso horário" error={errors["timezone"]}>
+            <Field id="timezone" label="Fuso horário da empresa" error={errors["timezone"]}>
               <Input id="timezone" name="timezone" list="ai-timezones" defaultValue={settings.timezone} maxLength={64} />
             </Field>
           </div>
@@ -189,6 +212,12 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
           </datalist>
         </div>
       </fieldset>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          O horário em que a IA responde fica na aba <span className="font-medium text-foreground">Horários</span>, junto do horário geral e do
+          horário da equipe.
+        </p>
+      )}
 
       <fieldset className="space-y-3 rounded-md border p-4" disabled={readOnly}>
         <legend className="px-1 text-sm font-medium">Encerramento automático</legend>
@@ -210,7 +239,7 @@ export function AiSettingsForm({ companyId, status, scope }: Props) {
       </fieldset>
 
       {readOnly ? (
-        <p className="text-sm text-muted-foreground">Somente o proprietário ou o administrador da empresa pode alterar estas configurações.</p>
+        <p className="text-sm text-muted-foreground">Você pode consultar estas configurações. Somente o proprietário ou alguém com a permissão &quot;Configurações da IA&quot; pode alterá-las.</p>
       ) : (
         <div className="flex justify-end">
           <Button type="submit" disabled={pending}>

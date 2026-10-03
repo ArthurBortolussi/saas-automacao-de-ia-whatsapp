@@ -2,7 +2,7 @@ import type { AiStatusResponse } from "@arthur-ai/shared";
 import { Badge } from "@arthur-ai/ui/components/badge";
 import { Card, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import { DetailList } from "@/components/detail-list";
-import { formatDateTime, formatNumber, WEEKDAY_SHORT } from "@/lib/format";
+import { AI_USAGE_LEVEL_LABEL, formatDateTime, formatNumber, WEEKDAY_SHORT } from "@/lib/format";
 
 /** Estado da IA de uma empresa: se está respondendo agora e, se não, por quê. Nunca mostra a chave. */
 export function AiStatusCard({ status }: { status: AiStatusResponse }) {
@@ -30,7 +30,7 @@ export function AiStatusCard({ status }: { status: AiStatusResponse }) {
       ) : null}
       <DetailList
         items={[
-          { label: "IA na empresa", value: settings.enabled ? "Ligada" : "Desligada" },
+          { label: "IA na empresa", value: settings.enabled ? (settings.paused ? "Ligada, mas pausada pela empresa" : "Ligada") : "Desligada" },
           { label: "Modelo", value: platform.configured ? `${platform.model}${platform.simulated ? " (API SIMULADA)" : ""}` : "Não configurado no servidor" },
           { label: "Horário da IA", value: `${schedule}${status.withinSchedule ? "" : " · fora do horário agora"}` },
           { label: "Novas conversas", value: settings.defaultConversationMode === "AI" ? "Começam com a IA" : "Começam com atendimento humano" },
@@ -40,6 +40,7 @@ export function AiStatusCard({ status }: { status: AiStatusResponse }) {
               overLimit ? ` (acima de ${formatNumber(knowledge.contextLimitChars)}: a IA usa só os trechos mais relacionados a cada conversa)` : ""
             }`,
           },
+          ...(status.usageLevel ? [{ label: "Uso no mês", value: AI_USAGE_LEVEL_LABEL[status.usageLevel] }] : []),
           { label: "Última alteração", value: settings.updatedAt ? formatDateTime(settings.updatedAt) : "Usando os valores padrão" },
         ]}
       />

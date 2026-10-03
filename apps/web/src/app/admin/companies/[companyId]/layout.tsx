@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CompanyStatusBadge } from "@/components/status-badge";
 import { getAdminCompany } from "@/lib/admin-data";
 import { formatDate } from "@/lib/format";
+import { CompanyStatusActions } from "./company-status-actions";
 import { CompanyTabs } from "./company-tabs";
 
 export default async function CompanyLayout({ children, params }: LayoutProps<"/admin/companies/[companyId]">) {
@@ -21,8 +22,10 @@ export default async function CompanyLayout({ children, params }: LayoutProps<"/
           </div>
           <p className="text-sm text-muted-foreground">
             {company.industry} · criada em {formatDate(company.createdAt)}
+            {company.suspendedAt ? ` · suspensa em ${formatDate(company.suspendedAt)}` : ""}
           </p>
         </div>
+        <CompanyStatusActions companyId={company.id} companyName={company.name} status={company.status} />
       </div>
       <CompanyTabs companyId={company.id} />
       <div className="pt-6">{children}</div>

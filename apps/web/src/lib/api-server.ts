@@ -34,6 +34,8 @@ export async function fetchPageData<T>(path: string): Promise<T> {
   if (result.ok) return result.data;
   if (result.status === 401) redirect("/login");
   if (result.error?.code === API_ERROR_CODES.PASSWORD_CHANGE_REQUIRED) redirect("/change-password");
+  // Fase 7: empresa suspensa durante a navegação → tela de suspensão (a API recusa todas as rotas da empresa).
+  if (result.error?.code === API_ERROR_CODES.COMPANY_SUSPENDED) redirect("/suspended");
   if (result.status === 404) notFound();
   throw new Error(result.error?.message ?? `Falha ao carregar ${path} (${result.status}).`);
 }

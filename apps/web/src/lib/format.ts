@@ -12,12 +12,14 @@ import type {
   GlobalRole,
   MemberRole,
   UserStatus,
+  AiUsageLevel,
 } from "@arthur-ai/shared";
 
 export const COMPANY_STATUS_LABEL: Record<CompanyStatus, string> = {
   ONBOARDING: "Onboarding",
   ACTIVE: "Ativa",
-  PAUSED: "Pausada",
+  // Fase 7: PAUSED representa a suspensão pelo Superadmin.
+  PAUSED: "Suspensa",
   INACTIVE: "Inativa",
 };
 
@@ -118,6 +120,8 @@ export const AI_HANDOFF_REASON_LABEL: Record<AiHandoffReason, string> = {
   AI_ERROR: "erro no serviço de IA",
   UNSUPPORTED_CONTENT: "o cliente enviou um conteúdo que a IA não interpreta (áudio, imagem…)",
   CONVERSATION_LIMIT: "limite de respostas automáticas por hora (proteção contra loop)",
+  AI_PAUSED: "a IA estava pausada pela empresa",
+  AI_LIMIT_REACHED: "o limite mensal de uso da IA foi atingido",
 };
 
 export const AI_RUN_RESULT_LABEL: Record<AiRunResult, string> = {
@@ -158,3 +162,26 @@ export const CLOSE_REASON_LABEL: Record<ConversationCloseReason, string> = {
   MANUAL: "finalizada manualmente",
   INACTIVITY: "finalizada por inatividade",
 };
+
+// ---------------------------------------------------------------- FASE 7
+
+export const AI_USAGE_LEVEL_LABEL: Record<AiUsageLevel, string> = {
+  NO_LIMIT: "Sem limite mensal",
+  OK: "Uso dentro do limite",
+  NEAR_LIMIT: "Próximo do limite mensal de uso da IA",
+  LIMIT_REACHED: "Limite mensal de uso da IA atingido",
+};
+
+export function formatMinutesShort(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** Data pura (AAAA-MM-DD) por extenso, sem conversão de fuso. */
+export function formatPlainDate(date: string): string {
+  return new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(
+    new Date(`${date}T12:00:00Z`),
+  );
+}

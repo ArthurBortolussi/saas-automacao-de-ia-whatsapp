@@ -3,6 +3,7 @@ import { Alert, AlertDescription, AlertTitle } from "@arthur-ai/ui/components/al
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import { AiSettingsForm } from "@/components/ai/ai-settings-form";
 import { AiStatusCard } from "@/components/ai/ai-status-card";
+import { AiBudgetCard } from "@/components/admin/ai-budget-card";
 import { fetchPageData } from "@/lib/api-server";
 
 export default async function CompanyAiPage({ params }: PageProps<"/admin/companies/[companyId]/ai">) {
@@ -34,8 +35,9 @@ export default async function CompanyAiPage({ params }: PageProps<"/admin/compan
             <AiSettingsForm companyId={companyId} status={status} scope="admin" />
           </CardContent>
         </Card>
-        <div>
+        <div className="space-y-6">
           <AiStatusCard status={status} />
+          {status.budget ? <AiBudgetCard budget={status.budget} /> : null}
         </div>
       </div>
     </div>

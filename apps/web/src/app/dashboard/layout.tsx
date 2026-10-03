@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/api-server";
 
 const SUSPENDED = new Set(["PAUSED", "INACTIVE"]);
 
-// O bloqueio real de empresa suspensa é feito pela API (403); aqui só exibimos o aviso.
+// O bloqueio real de empresa suspensa é feito pela API (403 em toda rota da empresa); aqui só exibimos a tela.
 export default async function CompanyAreaLayout({ children }: { children: ReactNode }) {
   const me = await requireUser();
   const membership = me.membership;
@@ -22,16 +22,12 @@ export default async function CompanyAreaLayout({ children }: { children: ReactN
     );
   }
 
+  // Fase 7: empresa suspensa → tela própria (/suspended), sem o restante do painel.
+  if (SUSPENDED.has(membership.company.status)) redirect("/suspended");
+
   return (
     <AppShell variant="company" me={me} context={membership.company.name}>
-      {SUSPENDED.has(membership.company.status) ? (
-        <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Acesso suspenso</AlertTitle>
-          <AlertDescription>O acesso da sua empresa está suspenso. Contate o suporte.</AlertDescription>
-        </Alert>
-      ) : (
-        children
-      )}
+      {children}
     </AppShell>
   );
 }

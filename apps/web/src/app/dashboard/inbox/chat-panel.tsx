@@ -34,6 +34,9 @@ export function ChatPanel({ companyId, conversation, messages, filter }: ChatPan
               <ConversationModeBadge mode={conversation.mode} />
               <ChannelBadge channel={conversation.channel} />
               <ConversationStatusBadge status={conversation.status} className="text-xs" />
+              {conversation.queueOverdue ? (
+                <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">Espera excessiva</span>
+              ) : null}
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {formatPhoneNumber(conversation.contact.phone)}

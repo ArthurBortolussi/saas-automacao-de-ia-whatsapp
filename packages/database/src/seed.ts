@@ -161,10 +161,11 @@ async function main() {
 
   for (const seed of companies) {
     const { member, slug, contacts: seedContacts, ...data } = seed;
+    // Fase 7: empresa existente não é alterada (nome comercial, fuso e suspensão podem ter sido mudados pelo painel).
     const company = await prisma.company.upsert({
       where: { slug },
       create: { slug, ...data },
-      update: data,
+      update: {},
     });
     const user = await upsertUser(member.name, member.email, member.password, "USER");
     await prisma.companyMember.upsert({

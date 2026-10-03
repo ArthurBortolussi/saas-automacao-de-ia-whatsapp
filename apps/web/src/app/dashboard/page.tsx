@@ -1,10 +1,11 @@
-import type { CompanyDetail, WhatsAppCompanyStatus } from "@arthur-ai/shared";
+import type { CompanyAlertsResponse, CompanyDetail, WhatsAppCompanyStatus } from "@arthur-ai/shared";
 import { Card, CardContent } from "@arthur-ai/ui/components/card";
 import { MessageCircle } from "lucide-react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { CompanyOverview } from "@/components/company-overview";
 import { PageHeader } from "@/components/page-header";
+import { CompanyAlerts } from "@/components/settings/company-alerts";
 import { fetchPageData, requireUser } from "@/lib/api-server";
 import { MEMBER_ROLE_LABEL } from "@/lib/format";
 
@@ -21,9 +22,12 @@ export default async function CompanyDashboardPage() {
   const me = await requireUser();
   if (!me.membership) redirect("/");
   // Os dados vêm da rota tenant-scoped: a API confere o vínculo (userId, companyId).
-  const [company, whatsapp] = await Promise.all([
+  const manager = me.membership.role !== "AGENT";
+  const [company, whatsapp, alerts] = await Promise.all([
     fetchPageData<CompanyDetail>(`/companies/${me.membership.company.id}`),
     fetchPageData<WhatsAppCompanyStatus>(`/companies/${me.membership.company.id}/whatsapp`),
+    // Fase 7: alertas só para proprietário e administradores (a API recusa funcionários).
+    manager ? fetchPageData<CompanyAlertsResponse>(`/companies/${me.membership.company.id}/alerts`) : Promise.resolve(null),
   ]);
 
   return (
@@ -32,6 +36,7 @@ export default async function CompanyDashboardPage() {
         title={company.name}
         description={`Olá, ${me.user.name.split(" ")[0] ?? me.user.name}. Você acessa como ${MEMBER_ROLE_LABEL[me.membership.role].toLowerCase()}.`}
       />
+      {alerts ? <CompanyAlerts alerts={alerts} /> : null}
       <Card className="mb-6 py-4">
         <CardContent className="flex items-center gap-3 px-5">
           <MessageCircle className={whatsapp.connected ? "size-5 text-success" : "size-5 text-muted-foreground"} />

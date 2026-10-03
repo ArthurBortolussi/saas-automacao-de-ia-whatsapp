@@ -2,6 +2,7 @@ import type { MeResponse } from "@arthur-ai/shared";
 import type { ReactNode } from "react";
 import { Logo } from "./logo";
 import { LogoutButton } from "./logout-button";
+import { CompanyLogo } from "./settings/company-logo";
 import { SidebarNav } from "./sidebar-nav";
 import { AvailabilityControl } from "./team/availability-control";
 
@@ -24,7 +25,11 @@ export function AppShell({ variant, me, context, children }: AppShellProps) {
       <aside className="flex flex-col gap-4 border-b border-sidebar-border bg-sidebar px-3 py-3 md:fixed md:inset-y-0 md:w-60 md:border-r md:border-b-0 md:py-4">
         <div className="flex items-center justify-between px-2 md:block">
           <Logo />
-          <p className="hidden truncate pt-1 text-xs text-muted-foreground md:block">{context}</p>
+          <div className="hidden items-center gap-2 pt-2 md:flex">
+            {/* Fase 7: logotipo da empresa (se houver), sem mudar o layout e as cores do Arthur AI. */}
+            {me.membership ? <CompanyLogo companyId={me.membership.company.id} version={me.membership.company.logoVersion} name={context} size={24} /> : null}
+            <p className="truncate text-xs text-muted-foreground">{context}</p>
+          </div>
           <div className="md:hidden">
             <LogoutButton />
           </div>

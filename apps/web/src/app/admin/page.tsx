@@ -1,8 +1,9 @@
-import type { AdminDashboardResponse } from "@arthur-ai/shared";
+import type { AdminAlertsResponse, AdminDashboardResponse } from "@arthur-ai/shared";
 import { Button } from "@arthur-ai/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AiLimitAlerts } from "@/components/admin/ai-limit-alerts";
 import { CompaniesTable } from "@/components/companies-table";
 import { PageHeader } from "@/components/page-header";
 import { fetchPageData } from "@/lib/api-server";
@@ -10,7 +11,10 @@ import { fetchPageData } from "@/lib/api-server";
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function AdminDashboardPage() {
-  const data = await fetchPageData<AdminDashboardResponse>("/admin/dashboard");
+  const [data, alerts] = await Promise.all([
+    fetchPageData<AdminDashboardResponse>("/admin/dashboard"),
+    fetchPageData<AdminAlertsResponse>("/admin/alerts"),
+  ]);
   const stats = [
     { label: "Empresas", value: data.totals.companies },
     { label: "Empresas ativas", value: data.totals.activeCompanies },
@@ -41,6 +45,19 @@ export default async function AdminDashboardPage() {
           </Card>
         ))}
       </div>
+      {alerts.aiLimitAlerts.length > 0 || alerts.suspendedCompanies > 0 ? (
+        <Card className="mt-8 gap-0 py-0">
+          <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
+            <CardTitle className="text-base">Alertas</CardTitle>
+            {alerts.suspendedCompanies > 0 ? (
+              <CardDescription>
+                {alerts.suspendedCompanies === 1 ? "1 empresa suspensa" : `${alerts.suspendedCompanies} empresas suspensas`}.
+              </CardDescription>
+            ) : null}
+          </CardHeader>
+          <AiLimitAlerts rows={alerts.aiLimitAlerts} />
+        </Card>
+      ) : null}
       <Card className="mt-8 gap-0 py-0">
         <CardHeader className="flex flex-row items-center justify-between border-b px-5 py-4 [.border-b]:pb-4">
           <CardTitle className="text-base">Empresas recentes</CardTitle>

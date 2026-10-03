@@ -88,7 +88,12 @@ export function ConversationList({ conversations, filter, selectedId, assignee }
                   href={query({ ...(filter === "all" ? {} : { filter }), c: conversation.id })}
                   prefetch={false}
                   aria-current={selected ? "true" : undefined}
-                  className={cn("block space-y-1.5 px-4 py-3 transition-colors", selected ? "bg-muted" : "hover:bg-muted/50")}
+                  className={cn(
+                    "block space-y-1.5 px-4 py-3 transition-colors",
+                    selected ? "bg-muted" : "hover:bg-muted/50",
+                    // Fase 7: espera acima do limite da empresa (o destaque some ao ser atribuída).
+                    conversation.queueOverdue && "border-l-4 border-l-destructive",
+                  )}
                 >
                   <div className="flex items-baseline justify-between gap-2">
                     <span className={cn("truncate text-sm", unread ? "font-semibold" : "font-medium")}>{conversation.contact.name}</span>
@@ -113,6 +118,9 @@ export function ConversationList({ conversations, filter, selectedId, assignee }
                     <ConversationModeBadge mode={conversation.mode} className="text-[11px]" />
                     <ChannelBadge channel={conversation.channel} />
                     <ConversationStatusBadge status={conversation.status} />
+                    {conversation.queueOverdue ? (
+                      <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive">Espera excessiva</span>
+                    ) : null}
                     {conversation.status === "ASSIGNED" && conversation.assignedUser ? (
                       <span className="truncate text-[11px] text-muted-foreground">{conversation.assignedUser.name}</span>
                     ) : null}
