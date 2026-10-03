@@ -77,11 +77,22 @@ function contactName(profileName: string | undefined, waId: string): string {
   return clean && clean.length >= 1 ? clean : `+${waId}`;
 }
 
-/** Modo das conversas novas/reabertas. Fase 7: com a IA pausada pela empresa, o cliente vai para a equipe. */
-async function defaultConversationMode(tx: Prisma.TransactionClient, companyId: string, runtime: CompanyRuntime): Promise<ConversationMode> {
+/**
+ * Modo das conversas novas/reabertas. Fase 7: com a IA pausada pela empresa, o cliente vai para a equipe
+ * (`pausedRouting` = o motivo fica registrado na conversa, como uma passagem para humano).
+ */
+async function defaultConversationMode(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  runtime: CompanyRuntime,
+): Promise<{ mode: ConversationMode; pausedRouting: boolean }> {
   const settings = await tx.aiSettings.findUnique({ where: { companyId }, select: { defaultConversationMode: true } });
   const mode = settings?.defaultConversationMode ?? "AI";
-  return mode === "AI" && runtime.aiPaused ? "HUMAN" : mode;
+  return mode === "AI" && runtime.aiPaused ? { mode: "HUMAN", pausedRouting: true } : { mode, pausedRouting: false };
+}
+
+function pausedRoutingData(pausedRouting: boolean, now: Date) {
+  return pausedRouting ? ({ aiHandoffReason: "AI_PAUSED", aiHandoffAt: now } as const) : {};
 }
 
 @Injectable()
@@ -286,17 +297,26 @@ export class WebhookProcessorService {
       select: { id: true },
     });
     if (!existing) {
-      const mode = await defaultConversationMode(tx, companyId, runtime);
+      const { mode, pausedRouting } = await defaultConversationMode(tx, companyId, runtime);
       const human = mode === "HUMAN";
       const conversation = await tx.conversation.create({
-        data: { companyId, contactId, channel: "WHATSAPP", mode, cycleStartedAt: now, lastActivityAt: now, ...(human ? queuedData(now) : {}) },
+        data: {
+          companyId,
+          contactId,
+          channel: "WHATSAPP",
+          mode,
+          cycleStartedAt: now,
+          lastActivityAt: now,
+          ...(human ? queuedData(now) : {}),
+          ...pausedRoutingData(pausedRouting, now),
+        },
         select: { id: true },
       });
       // Fase 6: ciclo de atendimento na mesma transação (um reenvio do webhook desfaz tudo junto).
       await startCycle(tx, { companyId, conversationId: conversation.id, origin: "NEW_CONVERSATION", mode, at: now });
       if (human) {
         await markQueued(tx, conversation.id, now);
-        await this.recordQueued(tx, companyId, conversation.id, "NEW_CONVERSATION");
+        await this.recordQueued(tx, companyId, conversation.id, pausedRouting ? "AI_PAUSED" : "NEW_CONVERSATION");
       }
       return { id: conversation.id, mode, queued: human };
     }
@@ -306,7 +326,7 @@ export class WebhookProcessorService {
     if (!current) throw new Error("Conversa sumiu durante o recebimento.");
 
     if (current.status === "CLOSED") {
-      const mode = await defaultConversationMode(tx, companyId, runtime);
+      const { mode, pausedRouting } = await defaultConversationMode(tx, companyId, runtime);
       const human = mode === "HUMAN";
       await tx.conversation.update({
         where: { id: existing.id },
@@ -319,6 +339,7 @@ export class WebhookProcessorService {
           closedByUserId: null,
           aiHandoffReason: null,
           aiHandoffAt: null,
+          ...pausedRoutingData(pausedRouting, now),
           cycleStartedAt: now,
         },
       });
@@ -330,7 +351,7 @@ export class WebhookProcessorService {
       await startCycle(tx, { companyId, conversationId: existing.id, origin: "REOPENED", mode, at: now });
       if (human) {
         await markQueued(tx, existing.id, now);
-        await this.recordQueued(tx, companyId, existing.id, "REOPENED");
+        await this.recordQueued(tx, companyId, existing.id, pausedRouting ? "AI_PAUSED" : "REOPENED");
       }
       return { id: existing.id, mode, queued: human };
     }
