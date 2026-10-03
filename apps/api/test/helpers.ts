@@ -36,7 +36,7 @@ export async function createTestApp(rateLimit: LoginRateLimitOptions = RELAXED_R
 
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "ConversationCycle", "ConversationAssignment", "TeamSettings", "AiRun", "AiReplyTask", "KnowledgeEntry", "AiSettings", "WhatsAppWebhookEvent", "WhatsAppAccount", "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "AiUsageAlert", "AiBudgetReservation", "CompanyLogo", "PlatformSettings", "ScheduleException", "CompanySettings", "ConversationCycle", "ConversationAssignment", "TeamSettings", "AiRun", "AiReplyTask", "KnowledgeEntry", "AiSettings", "WhatsAppWebhookEvent", "WhatsAppAccount", "Message", "Conversation", "Contact", "AuditLog", "Session", "CompanyMember", "Company", "User" RESTART IDENTITY CASCADE',
   );
 }
 
@@ -78,7 +78,10 @@ export async function createMember(
   options: { role?: MemberRole; mustChangePassword?: boolean; status?: UserStatus } = {},
 ) {
   const user = await createUser(prisma, options);
-  await prisma.companyMember.create({ data: { companyId, userId: user.id, role: options.role ?? "OWNER" } });
+  const role = options.role ?? "OWNER";
+  // Fase 7: mesma regra da API — ADMIN cadastrado pelo proprietário (ou existente antes da Fase 7) tem todos os grupos.
+  const settingsPermissions = role === "ADMIN" ? (["AI", "SERVICE", "SCHEDULE", "MESSAGES"] as const) : [];
+  await prisma.companyMember.create({ data: { companyId, userId: user.id, role, settingsPermissions: [...settingsPermissions] } });
   return user;
 }
 

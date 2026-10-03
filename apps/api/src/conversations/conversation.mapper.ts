@@ -1,13 +1,16 @@
 import type { Contact, Conversation, Message } from "@arthur-ai/database";
-import { aiMayReply, humanMayReply, isServiceWindowOpen, type ConversationDetail, type ConversationSummary, type MessageItem } from "@arthur-ai/shared";
+import { aiMayReply, humanMayReply, isQueueOverdue, isServiceWindowOpen, type ConversationDetail, type ConversationSummary, type MessageItem } from "@arthur-ai/shared";
 import { toContactDetail } from "../contacts/contact.mapper.js";
 
 type UserRefRow = { id: string; name: string } | null;
 
 export const userRefSelect = { select: { id: true, name: true } } as const;
 
+/** `maxQueueWaitMinutes`: limite de espera da empresa (Fase 7), para o destaque de espera excessiva. */
 export function toConversationSummary(
   conversation: Conversation & { contact: Pick<Contact, "id" | "name" | "phone" | "status">; assignedUser: UserRefRow },
+  maxQueueWaitMinutes: number,
+  now: Date = new Date(),
 ): ConversationSummary {
   return {
     id: conversation.id,
@@ -21,15 +24,16 @@ export function toConversationSummary(
     createdAt: conversation.createdAt.toISOString(),
     contact: conversation.contact,
     assignedUser: conversation.assignedUser,
+    queueOverdue: conversation.status === "QUEUED" && isQueueOverdue(conversation.queuedAt, maxQueueWaitMinutes, now),
   };
 }
 
 export function toConversationDetail(
   conversation: Conversation & { contact: Contact; assignedUser: UserRefRow },
-  extra: Pick<ConversationDetail, "queuePosition" | "permissions">,
+  extra: Pick<ConversationDetail, "queuePosition" | "permissions"> & { maxQueueWaitMinutes: number },
 ): ConversationDetail {
   return {
-    ...toConversationSummary(conversation),
+    ...toConversationSummary(conversation, extra.maxQueueWaitMinutes),
     contact: toContactDetail(conversation.contact),
     aiMayReply: aiMayReply(conversation.mode),
     humanMayReply: humanMayReply(conversation.mode),

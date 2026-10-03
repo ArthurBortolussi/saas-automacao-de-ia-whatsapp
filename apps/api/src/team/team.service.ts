@@ -11,6 +11,7 @@ import {
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { CompaniesService } from "../companies/companies.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { canEditSettings, initialSettingsPermissions, requireSettingsPermission } from "../settings/settings-access.js";
 import { DistributionService, isTeamManager } from "./distribution.service.js";
 import { lockCompanyTeam } from "./team-lock.js";
 
@@ -65,6 +66,7 @@ export class TeamService {
       canManage: isTeamManager(membership),
       queue: { waiting },
       settings: { inactivityTimeoutMinutes: settings?.inactivityTimeoutMinutes ?? DEFAULT_INACTIVITY_TIMEOUT_MINUTES },
+      canEditSettings: Boolean(membership) && canEditSettings(user, membership, "SERVICE"),
     };
   }
 
@@ -82,7 +84,7 @@ export class TeamService {
       company,
       { name: data.name, email: data.email, password: data.password, role: data.role },
       actor,
-      { maxConcurrent: data.maxConcurrent, canAttend: data.canAttend },
+      { maxConcurrent: data.maxConcurrent, canAttend: data.canAttend, settingsPermissions: initialSettingsPermissions(data.role, manager) },
     );
     return this.list(company, actor, membership);
   }
@@ -176,8 +178,10 @@ export class TeamService {
     return this.list(company, actor, membership);
   }
 
+  /** Prazo de inatividade da equipe. Fase 7: grupo "Atendimento e fila" (o mesmo dado da aba Atendimento). */
   async updateSettings(company: Company, data: UpdateTeamSettingsInput, actor: User, membership: CompanyMember | null): Promise<TeamResponse> {
-    this.requireManager(membership);
+    if (!membership) throw new ForbiddenException("O Superadmin acompanha a equipe; o cadastro é feito pelo responsável da empresa.");
+    requireSettingsPermission(actor, membership, "SERVICE");
     await this.prisma.$transaction(async (tx) => {
       await tx.teamSettings.upsert({
         where: { companyId: company.id },

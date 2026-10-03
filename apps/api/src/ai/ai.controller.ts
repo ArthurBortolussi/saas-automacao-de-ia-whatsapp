@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import type { Company, CompanyMember, User } from "@arthur-ai/database";
 import {
+  aiPauseSchema,
   aiUsageQuerySchema,
   createKnowledgeEntrySchema,
   listKnowledgeQuerySchema,
@@ -8,6 +9,7 @@ import {
   updateCompanyAiSettingsSchema,
   updateKnowledgeEntrySchema,
   uuidSchema,
+  type AiPauseInput,
   type AiStatusResponse,
   type AiUsageQuery,
   type AiUsageSummary,
@@ -27,7 +29,8 @@ import { AiUsageService } from "./ai-usage.service.js";
 import { KnowledgeService } from "./knowledge.service.js";
 
 /**
- * Rotas da empresa. Leitura: qualquer membro. Edição: OWNER/ADMIN (o SUPERADMIN passa pelo guard).
+ * Rotas da empresa. Leitura: qualquer membro. Edição das configurações: permissão individual por grupo (Fase 7,
+ * conferida no serviço); base de conhecimento: OWNER/ADMIN (o SUPERADMIN passa pelo guard).
  * A permissão é do backend: esconder botões no frontend é só conveniência.
  */
 @Controller("companies/:companyId")
@@ -49,14 +52,25 @@ export class AiCompanyController {
 
   /** Atendimento (nome, tom, orientações, horário, mensagem de transferência). Ligar a IA é só do SUPERADMIN. */
   @Patch("ai/settings")
-  @CompanyRoles("OWNER", "ADMIN")
   updateSettings(
     @CurrentCompany() company: Company,
     @CurrentUser() user: User,
     @CurrentMembership() membership: CompanyMember | null,
     @Body({ schema: updateCompanyAiSettingsSchema }) body: UpdateAiSettingsData,
   ): Promise<AiStatusResponse> {
-    return this.settings.update(company, body, user, membership);
+    return this.settings.update(company, body, user, membership, "company");
+  }
+
+  /** Fase 7: pausar (com confirmação) ou retomar a IA. Permissão "Configurações da IA". */
+  @Post("ai/pause")
+  @HttpCode(HttpStatus.OK)
+  pause(
+    @CurrentCompany() company: Company,
+    @CurrentUser() user: User,
+    @CurrentMembership() membership: CompanyMember | null,
+    @Body({ schema: aiPauseSchema }) body: AiPauseInput,
+  ): Promise<AiStatusResponse> {
+    return this.settings.setPaused(company, body.action, user, membership);
   }
 
   @Get("knowledge-base")
@@ -128,7 +142,7 @@ export class AiAdminController {
     @CurrentMembership() membership: CompanyMember | null,
     @Body({ schema: updateAdminAiSettingsSchema }) body: UpdateAiSettingsData,
   ): Promise<AiStatusResponse> {
-    return this.settings.update(company, body, user, membership);
+    return this.settings.update(company, body, user, membership, "admin");
   }
 
   @Get("usage")

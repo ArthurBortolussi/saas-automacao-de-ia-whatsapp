@@ -16,10 +16,11 @@ import type {
   Prisma,
   User,
 } from "@arthur-ai/database";
-import { DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES, isServiceWindowOpen, QUEUE_WAITING_MESSAGE, type EligibleAssignee } from "@arthur-ai/shared";
+import { DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES, isCompanyBlocked, isServiceWindowOpen, type EligibleAssignee } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { closeCycle, markAssigned, markQueued } from "../analytics/cycle-tracker.js";
+import { businessClosedPeriod, companyBlockedForShare, isScheduleOpen, loadCompanyRuntime, type CompanyRuntime } from "../settings/runtime.js";
 import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
 import { endOpenAssignment, queuedData, releasedData } from "./conversation-state.js";
 import { lockCompanyTeam } from "./team-lock.js";
@@ -73,12 +74,21 @@ export class DistributionService {
       ORDER BY e."load" ASC, e."lastAssignedAt" ASC NULLS FIRST, e."userId" ASC`;
   }
 
-  /** Distribui a fila da empresa (ordem de chegada) enquanto houver conversa elegível e funcionário com vaga. */
+  /**
+   * Distribui a fila da empresa (ordem de chegada) enquanto houver conversa elegível e funcionário com vaga.
+   * Fase 7: só dentro do expediente da equipe (semana + exceções, no fuso da empresa) e nunca com a empresa suspensa.
+   * Fora do expediente a fila só espera; o worker da equipe tenta a cada ciclo, então a retomada no início do
+   * expediente é automática (inclusive depois de um reinício da API). Conversas já atribuídas não são tocadas.
+   */
   async distribute(companyId: string): Promise<number> {
+    const runtime = await loadCompanyRuntime(this.prisma, companyId);
     let assigned = 0;
     for (;;) {
+      // Reavaliado a cada atribuição: o expediente pode terminar no meio de uma fila longa.
+      if (!isScheduleOpen(runtime, "team")) return assigned;
       const done = await this.prisma.$transaction(async (tx) => {
         await lockCompanyTeam(tx, companyId);
+        if (await companyBlockedForShare(tx, companyId)) return false;
         // Pausadas ficam na fila, mas não são distribuídas até serem reativadas.
         const next = await tx.conversation.findFirst({
           where: { companyId, status: "QUEUED", mode: "HUMAN" },
@@ -228,10 +238,16 @@ export class DistributionService {
     await this.distribute(company.id);
   }
 
-  /** Encerramento manual: o responsável encerra o próprio atendimento; OWNER/ADMIN qualquer atendimento humano. */
+  /**
+   * Encerramento manual: o responsável encerra o próprio atendimento; OWNER/ADMIN qualquer atendimento humano.
+   * Fase 7: a mensagem de encerramento (se ligada) é gravada na mesma transação — no máximo uma por encerramento —
+   * e enviada depois do commit. Encerramentos automáticos nunca enviam essa mensagem.
+   */
   async closeManually(company: Company, conversationId: string, actor: User, membership: CompanyMember | null): Promise<void> {
     if (!membership) throw new ForbiddenException("O Superadmin acompanha os atendimentos, mas não os finaliza.");
-    await this.prisma.$transaction(async (tx) => {
+    const runtime = await loadCompanyRuntime(this.prisma, company.id);
+    const closing = runtime.messages.closing.enabled ? runtime.messages.closing.text : null;
+    const closingMessageId = await this.prisma.$transaction(async (tx) => {
       await lockCompanyTeam(tx, company.id);
       const conversation = await tx.conversation.findUnique({
         where: { id_companyId: { id: conversationId, companyId: company.id } },
@@ -243,8 +259,10 @@ export class DistributionService {
       if (!isTeamManager(membership) && conversation.assignedUserId !== actor.id) {
         throw new ForbiddenException("Você só pode finalizar os atendimentos atribuídos a você.");
       }
-      await this.closeInTx(tx, company.id, conversationId, conversation.status, conversation.assignedUserId, "MANUAL", actor.id);
+      const result = await this.closeInTx(tx, company.id, conversationId, conversation.status, conversation.assignedUserId, "MANUAL", actor.id, {}, closing);
+      return result.closingMessageId;
     });
+    if (closingMessageId) await this.outbound.dispatch(closingMessageId);
     await this.distribute(company.id);
   }
 
@@ -257,15 +275,25 @@ export class DistributionService {
     reason: ConversationCloseReason,
     actorUserId: string | null,
     extraWhere: Prisma.ConversationWhereInput = {},
-  ): Promise<boolean> {
+    closingMessage: string | null = null,
+  ): Promise<{ closed: boolean; closingMessageId: string | null }> {
     const now = new Date();
     const { count } = await tx.conversation.updateMany({
       where: { id: conversationId, companyId, status: expectedStatus, ...extraWhere },
       data: { ...releasedData, status: "CLOSED", closedAt: now, closeReason: reason, closedByUserId: actorUserId },
     });
-    if (count === 0) return false;
+    if (count === 0) return { closed: false, closingMessageId: null };
     await closeCycle(tx, conversationId, now, reason);
     if (previousUserId) await endOpenAssignment(tx, conversationId, "CLOSED", now);
+    // Fase 7: mensagem de encerramento (só no encerramento manual, quando ligada). Conversa interna, pausada ou com a
+    // janela de 24h fechada não recebe; o motivo fica na auditoria.
+    let closingMessageId: string | null = null;
+    let closingOutcome = "QUEUED";
+    if (closingMessage && reason === "MANUAL") {
+      const enqueued = await this.outbound.enqueueSystemInTx(tx, companyId, conversationId, closingMessage, now);
+      if ("messageId" in enqueued) closingMessageId = enqueued.messageId;
+      else closingOutcome = enqueued.skipped;
+    }
     // Nada da IA fica pendente numa conversa encerrada.
     await tx.aiReplyTask.updateMany({
       where: { conversationId, companyId, status: { in: ["PENDING", "RUNNING"] } },
@@ -278,11 +306,11 @@ export class DistributionService {
         entityType: "Conversation",
         entityId: conversationId,
         companyId,
-        metadata: { reason, ...(previousUserId ? { previousUserId } : {}), fromStatus: expectedStatus },
+        metadata: { reason, ...(previousUserId ? { previousUserId } : {}), fromStatus: expectedStatus, ...(closingMessage ? { closingMessage: closingOutcome } : {}) },
       },
       tx,
     );
-    return true;
+    return { closed: true, closingMessageId };
   }
 
   /**
@@ -295,9 +323,11 @@ export class DistributionService {
     const candidates = await this.prisma.$queryRaw<{ id: string; companyId: string; assignedUserId: string; lastActivityAt: Date }[]>`
       SELECT c."id", c."companyId", c."assignedUserId", c."lastActivityAt"
         FROM "Conversation" c
+        JOIN "Company" co ON co."id" = c."companyId"
         LEFT JOIN "TeamSettings" t ON t."companyId" = c."companyId"
        WHERE c."status" = 'ASSIGNED' AND c."lastActivityAt" IS NOT NULL
-         AND c."lastActivityAt" < now() - make_interval(mins => COALESCE(t."inactivityTimeoutMinutes", ${DEFAULT_INACTIVITY_MINUTES}))
+         AND co."status" NOT IN ('PAUSED', 'INACTIVE')
+         AND GREATEST(c."lastActivityAt", co."reactivatedAt") < now() - make_interval(mins => COALESCE(t."inactivityTimeoutMinutes", ${DEFAULT_INACTIVITY_MINUTES}))
          AND NOT EXISTS (SELECT 1 FROM "Message" m WHERE m."conversationId" = c."id" AND m."deliveryStatus" = 'PENDING')
        ORDER BY c."lastActivityAt"
        LIMIT ${limit}`;
@@ -308,10 +338,11 @@ export class DistributionService {
         await lockCompanyTeam(tx, candidate.companyId);
         const sending = await tx.message.count({ where: { conversationId: candidate.id, deliveryStatus: "PENDING" } });
         if (sending > 0) return false;
-        return this.closeInTx(tx, candidate.companyId, candidate.id, "ASSIGNED", candidate.assignedUserId, "INACTIVITY", null, {
+        const result = await this.closeInTx(tx, candidate.companyId, candidate.id, "ASSIGNED", candidate.assignedUserId, "INACTIVITY", null, {
           assignedUserId: candidate.assignedUserId,
           lastActivityAt: candidate.lastActivityAt,
         });
+        return result.closed;
       });
       if (done) {
         closed += 1;
@@ -334,9 +365,11 @@ export class DistributionService {
     const candidates = await this.prisma.$queryRaw<{ id: string; companyId: string; lastActivityAt: Date }[]>`
       SELECT c."id", c."companyId", c."lastActivityAt"
         FROM "Conversation" c
+        JOIN "Company" co ON co."id" = c."companyId"
         LEFT JOIN "AiSettings" s ON s."companyId" = c."companyId"
        WHERE c."status" = 'OPEN' AND c."mode" = 'AI' AND c."lastActivityAt" IS NOT NULL
-         AND c."lastActivityAt" < now() - make_interval(mins => COALESCE(s."inactivityTimeoutMinutes", ${DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES}))
+         AND co."status" NOT IN ('PAUSED', 'INACTIVE')
+         AND GREATEST(c."lastActivityAt", co."reactivatedAt") < now() - make_interval(mins => COALESCE(s."inactivityTimeoutMinutes", ${DEFAULT_AI_INACTIVITY_TIMEOUT_MINUTES}))
          AND NOT EXISTS (SELECT 1 FROM "Message" m WHERE m."conversationId" = c."id" AND m."deliveryStatus" = 'PENDING')
          AND NOT EXISTS (SELECT 1 FROM "AiReplyTask" t WHERE t."conversationId" = c."id" AND t."status" IN ('PENDING', 'RUNNING'))
        ORDER BY c."lastActivityAt"
@@ -351,20 +384,21 @@ export class DistributionService {
           tx.aiReplyTask.count({ where: { conversationId: candidate.id, status: { in: ["PENDING", "RUNNING"] } } }),
         ]);
         if (sending > 0 || aiWork > 0) return false;
-        return this.closeInTx(tx, candidate.companyId, candidate.id, "OPEN", null, "INACTIVITY", null, {
+        const result = await this.closeInTx(tx, candidate.companyId, candidate.id, "OPEN", null, "INACTIVITY", null, {
           mode: "AI",
           lastActivityAt: candidate.lastActivityAt,
         });
+        return result.closed;
       });
       if (done) closed += 1;
     }
     return closed;
   }
 
-  /** Empresas com conversas aguardando na fila (recuperação após reinício e ciclo periódico). */
+  /** Empresas com conversas aguardando na fila (recuperação após reinício e ciclo periódico). Suspensas ficam de fora. */
   async companiesWithQueue(): Promise<string[]> {
     const rows = await this.prisma.conversation.findMany({
-      where: { status: "QUEUED", mode: "HUMAN" },
+      where: { status: "QUEUED", mode: "HUMAN", company: { status: { notIn: ["PAUSED", "INACTIVE"] } } },
       distinct: ["companyId"],
       select: { companyId: true },
     });
@@ -381,8 +415,9 @@ export class DistributionService {
       where: { status: "QUEUED", mode: "HUMAN", queueNoticeAt: null, queueNoticeError: null },
       orderBy: [{ queuedAt: "asc" }, { id: "asc" }],
       take: limit,
-      select: { id: true, companyId: true, channel: true, queuedAt: true, lastInboundAt: true, company: true },
+      select: { id: true, companyId: true, channel: true, queuedAt: true, lastInboundAt: true, afterHoursNoticeKey: true, company: true },
     });
+    const runtimes = new Map<string, CompanyRuntime>();
     for (const conversation of pending) {
       const queuedAt = conversation.queuedAt;
       if (!queuedAt) continue;
@@ -396,8 +431,24 @@ export class DistributionService {
         await markError("INTERNAL_CHANNEL");
         continue;
       }
-      if (conversation.company.status === "PAUSED" || conversation.company.status === "INACTIVE") {
+      if (isCompanyBlocked(conversation.company.status)) {
         await markError("COMPANY_SUSPENDED");
+        continue;
+      }
+      // Fase 7: texto e liga/desliga configuráveis; o texto é lido agora, então quem já foi avisado não recebe de novo.
+      let runtime = runtimes.get(conversation.companyId);
+      if (!runtime) {
+        runtime = await loadCompanyRuntime(this.prisma, conversation.companyId);
+        runtimes.set(conversation.companyId, runtime);
+      }
+      if (!runtime.messages.queueNotice.enabled) {
+        await markError("DISABLED");
+        continue;
+      }
+      // Já avisado de que a empresa está fechada neste mesmo período: não manda uma segunda mensagem em sequência.
+      const closedPeriod = businessClosedPeriod(runtime);
+      if (closedPeriod && conversation.afterHoursNoticeKey === closedPeriod) {
+        await markError("AFTER_HOURS_NOTICE");
         continue;
       }
       if (!isServiceWindowOpen(conversation.lastInboundAt)) {
@@ -405,7 +456,7 @@ export class DistributionService {
         continue;
       }
       try {
-        await this.outbound.send(conversation.company, conversation.id, QUEUE_WAITING_MESSAGE, {
+        await this.outbound.send(conversation.company, conversation.id, runtime.messages.queueNotice.text, {
           type: "SYSTEM",
           inTransaction: async (tx) => {
             const { count } = await tx.conversation.updateMany({

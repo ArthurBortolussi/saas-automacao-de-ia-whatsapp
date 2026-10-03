@@ -38,13 +38,31 @@ export const AUDIT_ACTIONS = {
   CONVERSATION_REOPENED: "conversation.reopened",
   // Fase 6
   ANALYTICS_EXPORTED: "analytics.exported",
+  // Fase 7
+  COMPANY_PROFILE_UPDATED: "company.profile_updated",
+  COMPANY_LOGO_UPDATED: "company.logo_updated",
+  COMPANY_LOGO_REMOVED: "company.logo_removed",
+  COMPANY_SUSPENDED: "company.suspended",
+  COMPANY_REACTIVATED: "company.reactivated",
+  SETTINGS_PERMISSIONS_CHANGED: "settings.permissions_changed",
+  SCHEDULES_UPDATED: "settings.schedules_updated",
+  SCHEDULE_EXCEPTION_CREATED: "settings.exception_created",
+  SCHEDULE_EXCEPTION_UPDATED: "settings.exception_updated",
+  SCHEDULE_EXCEPTION_DELETED: "settings.exception_deleted",
+  AUTO_MESSAGES_UPDATED: "settings.messages_updated",
+  SERVICE_SETTINGS_UPDATED: "settings.service_updated",
+  AI_PAUSED: "ai.paused",
+  AI_RESUMED: "ai.resumed",
+  AI_LIMIT_UPDATED: "ai.limit_updated",
+  AI_USAGE_THRESHOLD: "ai.usage_threshold",
+  PLATFORM_SETTINGS_UPDATED: "platform.settings_updated",
 } as const;
 type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   action: AuditAction;
   actorUserId: string | null;
-  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry" | "TeamSettings" | "Report";
+  entityType: "User" | "Company" | "CompanyMember" | "Contact" | "Conversation" | "WhatsAppAccount" | "AiSettings" | "KnowledgeEntry" | "TeamSettings" | "Report" | "CompanySettings" | "ScheduleException" | "PlatformSettings";
   entityId: string | null;
   companyId?: string | null;
   // Nunca inclua senhas, hashes ou tokens aqui.

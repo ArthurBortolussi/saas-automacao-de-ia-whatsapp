@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import type { Company, User } from "@arthur-ai/database";
+import type { Company, SettingsPermission, User } from "@arthur-ai/database";
 import { hashPassword } from "@arthur-ai/database/password";
 import type {
   CompanyDetail,
@@ -13,6 +13,7 @@ import type {
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { uniqueViolationIndex } from "../common/prisma-errors.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { initialSettingsPermissions } from "../settings/settings-access.js";
 import { toCompanyDetail, toCompanySummary } from "./company.mapper.js";
 import { firstFreeSlug, slugify } from "./slug.js";
 
@@ -94,7 +95,7 @@ export class CompaniesService {
     company: Company,
     input: CreateCompanyMemberInput,
     actor: User,
-    options: { maxConcurrent?: number; canAttend?: boolean } = {},
+    options: { maxConcurrent?: number; canAttend?: boolean; settingsPermissions?: SettingsPermission[] } = {},
   ): Promise<CompanyMemberItem> {
     const passwordHash = await hashPassword(input.password);
     try {
@@ -103,7 +104,8 @@ export class CompaniesService {
           data: { name: input.name, email: input.email, passwordHash, globalRole: "USER", mustChangePassword: true },
         });
         const member = await tx.companyMember.create({
-          data: { companyId: company.id, userId: user.id, role: input.role, ...options },
+          // Fase 7: sem permissões informadas, aplica a regra padrão (ADMIN cadastrado pelo SUPERADMIN: todos os grupos).
+          data: { companyId: company.id, userId: user.id, role: input.role, settingsPermissions: initialSettingsPermissions(input.role, null), ...options },
         });
         await this.audit.record(
           {
@@ -112,7 +114,7 @@ export class CompaniesService {
             entityType: "CompanyMember",
             entityId: member.id,
             companyId: company.id,
-            metadata: { userId: user.id, email: user.email, role: member.role },
+            metadata: { userId: user.id, email: user.email, role: member.role, settingsPermissions: member.settingsPermissions },
           },
           tx,
         );

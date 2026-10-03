@@ -1,9 +1,10 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { Prisma, type Company, type ConversationMode } from "@arthur-ai/database";
-import { aiMayReply, humanMayReply, isServiceWindowOpen, type MessageItem } from "@arthur-ai/shared";
+import { aiMayReply, humanMayReply, isCompanyBlocked, isServiceWindowOpen, type MessageItem } from "@arthur-ai/shared";
 import { markAiActivity, markHumanReply } from "../analytics/cycle-tracker.js";
 import { messagePreview, toMessageItem, userRefSelect } from "../conversations/conversation.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { companyBlockedForShare } from "../settings/runtime.js";
 import { CloudApiClient } from "./cloud-api.client.js";
 import { WhatsAppAccountsService } from "./whatsapp-accounts.service.js";
 import { WhatsAppApiError } from "./whatsapp-errors.js";
@@ -23,6 +24,11 @@ const MAX_ATTEMPTS = 5;
 // Enquanto uma tentativa está em curso, a mensagem fica "reservada" por este tempo.
 const SEND_LEASE_MS = 60_000;
 const backoffMs = (attempt: number) => Math.min(15 * 60_000, 2 ** attempt * 5_000);
+
+const COMPANY_SUSPENDED = "A empresa está suspensa: nenhuma mensagem é enviada até a reativação.";
+
+/** Por que uma mensagem automática (Fase 7) não foi colocada na fila de envio. */
+export type SystemEnqueueSkip = "INTERNAL_CHANNEL" | "CONVERSATION_PAUSED" | "WINDOW_CLOSED" | "NOT_FOUND";
 
 const WINDOW_CLOSED = "A janela de 24 horas do WhatsApp está fechada: o cliente não envia mensagens há mais de 24h. Só é possível enviar um modelo aprovado pela Meta (disponível em fase futura).";
 
@@ -55,6 +61,8 @@ export class WhatsAppOutboundService {
 
     const now = new Date();
     const messageId = await this.prisma.$transaction(async (tx) => {
+      // Fase 7: empresa suspensa não envia nada (conferido na transação, contra uma suspensão concorrente).
+      if (await companyBlockedForShare(tx, company.id)) throw new ServiceUnavailableException(COMPANY_SUSPENDED);
       const conversation = await tx.conversation.findUnique({
         where: { id_companyId: { id: conversationId, companyId: company.id } },
         select: { mode: true, channel: true, lastInboundAt: true },
@@ -105,6 +113,48 @@ export class WhatsAppOutboundService {
   }
 
   /**
+   * Fase 7: mensagem automática operacional (boas-vindas, fora do expediente, encerramento) gravada na transação
+   * do evento que a originou (exatamente uma vez, junto com a marcação de controle). Mesmas regras do envio do
+   * sistema: só WhatsApp, nunca em conversa pausada, só com a janela de 24h aberta. A tentativa de envio acontece
+   * depois do commit (dispatch) e as retentativas seguem o outbox existente. Quem chama já conferiu a suspensão
+   * da empresa na mesma transação.
+   */
+  async enqueueSystemInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    conversationId: string,
+    body: string,
+    now: Date = new Date(),
+  ): Promise<{ messageId: string } | { skipped: SystemEnqueueSkip }> {
+    const conversation = await tx.conversation.findUnique({
+      where: { id_companyId: { id: conversationId, companyId } },
+      select: { mode: true, channel: true, lastInboundAt: true },
+    });
+    if (!conversation) return { skipped: "NOT_FOUND" };
+    if (conversation.channel !== "WHATSAPP") return { skipped: "INTERNAL_CHANNEL" };
+    if (conversation.mode === "PAUSED") return { skipped: "CONVERSATION_PAUSED" };
+    if (!isServiceWindowOpen(conversation.lastInboundAt, now)) return { skipped: "WINDOW_CLOSED" };
+    await tx.conversation.updateMany({
+      where: { id: conversationId, companyId },
+      data: { lastMessageAt: now, lastMessagePreview: messagePreview(body) },
+    });
+    const message = await tx.message.create({
+      data: {
+        companyId,
+        conversationId,
+        direction: "OUTBOUND",
+        senderType: "SYSTEM",
+        body,
+        deliveryStatus: "PENDING",
+        nextSendAttemptAt: now,
+        createdAt: now,
+      },
+      select: { id: true },
+    });
+    return { messageId: message.id };
+  }
+
+  /**
    * Uma tentativa de envio. Seguro para chamadas concorrentes: só quem "reserva" a mensagem
    * (update condicional) envia. Usado pelo envio imediato e pelo worker de retentativas.
    */
@@ -123,10 +173,16 @@ export class WhatsAppOutboundService {
         companyId: true,
         body: true,
         sendAttempts: true,
+        company: { select: { status: true } },
         conversation: { select: { lastInboundAt: true, contact: { select: { phone: true, whatsappId: true } } } },
       },
     });
 
+    // Fase 7: empresa suspensa depois que a mensagem entrou na fila: não sai (nem depois da reativação).
+    if (isCompanyBlocked(message.company.status)) {
+      await this.fail(message.id, "COMPANY_SUSPENDED", COMPANY_SUSPENDED);
+      return;
+    }
     // A janela pode ter fechado enquanto a mensagem esperava uma retentativa.
     if (!isServiceWindowOpen(message.conversation.lastInboundAt, now)) {
       await this.fail(message.id, "WINDOW_CLOSED", WINDOW_CLOSED);

@@ -100,6 +100,7 @@ export class WhatsAppWorker implements OnModuleInit, OnModuleDestroy {
             : {
                 companyId: outcome.companyId,
                 status: outcome.result === "processed" ? "PROCESSED" : "IGNORED",
+                ignoredReason: outcome.ignoredReason,
                 lockedUntil: null,
                 processedAt: new Date(),
               },

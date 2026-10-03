@@ -65,8 +65,8 @@ export class TeamController {
     return this.team.setAvailability(company, body.availability, user, membership);
   }
 
+  /** Fase 7: permissão individual "Atendimento e fila" (conferida no serviço). */
   @Patch("settings")
-  @CompanyRoles("OWNER", "ADMIN")
   settings(
     @CurrentCompany() company: Company,
     @CurrentUser() user: User,

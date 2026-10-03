@@ -14,7 +14,12 @@ export function toCompanySummary(company: Company): CompanySummary {
   };
 }
 
-export function toCompanyDetail(company: Company): CompanyDetail {
+/** Versão do logotipo para o cache do navegador (muda a cada upload). */
+export function logoVersion(updatedAt: Date | null | undefined): string | null {
+  return updatedAt ? String(updatedAt.getTime()) : null;
+}
+
+export function toCompanyDetail(company: Company, logoUpdatedAt: Date | null = null): CompanyDetail {
   return {
     ...toCompanySummary(company),
     legalName: company.legalName,
@@ -25,5 +30,8 @@ export function toCompanyDetail(company: Company): CompanyDetail {
     address: company.address,
     businessHours: company.businessHours,
     updatedAt: company.updatedAt.toISOString(),
+    timezone: company.timezone,
+    suspendedAt: company.suspendedAt?.toISOString() ?? null,
+    logoVersion: logoVersion(logoUpdatedAt),
   };
 }

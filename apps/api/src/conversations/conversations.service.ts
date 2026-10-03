@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Company, CompanyMember, ConversationMode, ConversationStatus, Prisma, User } from "@arthur-ai/database";
 import {
   ACTION_ALLOWED_FROM,
+  DEFAULT_MAX_QUEUE_WAIT_MINUTES,
   humanMayReply,
   type ConversationAction,
   type ConversationDetail,
@@ -111,7 +112,9 @@ export class ConversationsService {
       }),
       this.prisma.conversation.count({ where }),
     ]);
-    return { items: items.map(toConversationSummary), page: query.page, pageSize: query.pageSize, total };
+    const maxWait = await this.maxQueueWaitMinutes(company.id);
+    const now = new Date();
+    return { items: items.map((item) => toConversationSummary(item, maxWait, now)), page: query.page, pageSize: query.pageSize, total };
   }
 
   async get(company: Company, conversationId: string, user: User, membership: CompanyMember | null): Promise<ConversationDetail> {
@@ -138,6 +141,7 @@ export class ConversationsService {
     const mine = conversation.assignedUserId === user.id;
     const human = conversation.status !== "CLOSED" && conversation.mode !== "AI";
     return toConversationDetail(conversation, {
+      maxQueueWaitMinutes: await this.maxQueueWaitMinutes(company.id),
       queuePosition,
       permissions: {
         close: Boolean(membership) && human && (manager || mine),
@@ -430,6 +434,12 @@ export class ConversationsService {
         );
       }
     }
+  }
+
+  /** Fase 7: limite de espera da empresa (alerta de espera excessiva na Inbox). */
+  private async maxQueueWaitMinutes(companyId: string): Promise<number> {
+    const settings = await this.prisma.teamSettings.findUnique({ where: { companyId }, select: { maxQueueWaitMinutes: true } });
+    return settings?.maxQueueWaitMinutes ?? DEFAULT_MAX_QUEUE_WAIT_MINUTES;
   }
 
   private async requireConversation(company: Company, conversationId: string) {

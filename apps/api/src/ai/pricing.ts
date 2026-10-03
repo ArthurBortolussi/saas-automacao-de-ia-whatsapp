@@ -39,3 +39,15 @@ export function estimateCostUsd(usage: TokenUsage, price: AiPrice | null): strin
     usage.cacheReadInputTokens * price.cacheReadPerMTok;
   return (micro / 1_000_000).toFixed(6);
 }
+
+/**
+ * Fase 7: teto ESTIMADO de uma execução, reservado antes de chamar o modelo (controle do limite mensal).
+ * Conservador: ~3 caracteres por token na entrada (português costuma dar mais), entrada cobrada pelo maior preço
+ * entre entrada e escrita de cache, e a saída máxima permitida (max_tokens, que inclui o raciocínio).
+ */
+export function estimateMaxCostUsd(inputChars: number, maxOutputTokens: number, price: AiPrice | null): string | null {
+  if (!price) return null;
+  const inputTokens = Math.ceil(inputChars / 3);
+  const micro = inputTokens * Math.max(price.inputPerMTok, price.cacheWritePerMTok) + maxOutputTokens * price.outputPerMTok;
+  return (micro / 1_000_000).toFixed(6);
+}

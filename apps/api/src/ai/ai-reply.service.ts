@@ -2,18 +2,20 @@ import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { AiHandoffReason, AiTaskStatus, Company, Prisma } from "@arthur-ai/database";
-import { aiMayReply, DEFAULT_HANDOFF_MESSAGE, isServiceWindowOpen, isWithinAiSchedule, MESSAGE_MAX_LENGTH } from "@arthur-ai/shared";
+import { aiMayReply, DEFAULT_HANDOFF_MESSAGE, isServiceWindowOpen, MESSAGE_MAX_LENGTH } from "@arthur-ai/shared";
 import { markAiHandoff, markQueued, openCycleId } from "../analytics/cycle-tracker.js";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { ENV, type Env } from "../config/env.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { isScheduleOpen, loadCompanyRuntime } from "../settings/runtime.js";
 import { queuedData } from "../team/conversation-state.js";
 import { ConversationEvents } from "../whatsapp/conversation-events.js";
 import { WhatsAppOutboundService } from "../whatsapp/whatsapp-outbound.service.js";
+import { AiBudgetService } from "./ai-budget.service.js";
 import { AiModelClient, type ModelOutcome } from "./ai-model.client.js";
 import { AiSettingsService, type ResolvedAiSettings } from "./ai-settings.service.js";
 import { KnowledgeService } from "./knowledge.service.js";
-import { estimateCostUsd, priceFor } from "./pricing.js";
+import { estimateCostUsd, estimateMaxCostUsd, priceFor } from "./pricing.js";
 import {
   BASE_INSTRUCTIONS,
   buildCompanyBlock,
@@ -72,6 +74,7 @@ export class AiReplyService {
     private readonly outbound: WhatsAppOutboundService,
     private readonly audit: AuditService,
     private readonly events: ConversationEvents,
+    private readonly budget: AiBudgetService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -95,6 +98,8 @@ export class AiReplyService {
     } catch (error) {
       // Falha nossa (ex.: banco). Só a mensagem do erro: nada de conteúdo de clientes nos logs.
       this.logger.error(`Execução da IA ${runId} falhou: ${error instanceof Error ? error.message : String(error)}`);
+      // Fase 7: a reserva de orçamento deste lote não pode ficar presa até vencer.
+      await this.budget.release(runId).catch(() => undefined);
       if (context.attempts < AI_MAX_ATTEMPTS) await this.requeue(context, retryDelayMs(context.attempts));
       else await this.finish(context, "FAILED", "INTERNAL_ERROR");
     }
@@ -114,8 +119,11 @@ export class AiReplyService {
     if (conversation.channel !== "WHATSAPP") return this.finish(context, "SKIPPED", "NOT_WHATSAPP");
     const settings = await this.settings.resolve(company.id);
     if (!settings.enabled) return this.finish(context, "SKIPPED", "AI_DISABLED");
+    // Fase 7: pausada pela empresa depois que a mensagem chegou → segue para a equipe, sem mensagem automática.
+    if (settings.pausedAt) return this.routeToTeam(context);
     if (!this.model.configured) return this.finish(context, "SKIPPED", "AI_NOT_CONFIGURED");
-    if (!isWithinAiSchedule(settings)) return this.finish(context, "SKIPPED", "OUTSIDE_SCHEDULE");
+    // Fase 7: horário da IA com as datas especiais, no fuso da empresa.
+    if (!isScheduleOpen(await loadCompanyRuntime(this.prisma, company.id), "ai")) return this.finish(context, "SKIPPED", "OUTSIDE_SCHEDULE");
     if (!isServiceWindowOpen(conversation.lastInboundAt)) return this.finish(context, "SKIPPED", "WINDOW_CLOSED");
     const account = await this.prisma.whatsAppAccount.findUnique({ where: { companyId: company.id }, select: { status: true } });
     if (!account || account.status === "DISABLED" || account.status === "ERROR") {
@@ -141,13 +149,26 @@ export class AiReplyService {
     const request = await this.buildRequest(context, company, settings);
     if (!request) return this.finish(context, "SKIPPED", "NO_REPLY_NEEDED");
 
+    // Fase 7: limite mensal. Reserva uma estimativa conservadora antes de gastar; sem saldo, vai para a equipe.
+    const estimate = estimateMaxCostUsd(
+      JSON.stringify(request).length,
+      this.env.ai.maxOutputTokens,
+      priceFor(this.env.ai.model, this.env.ai.model, this.env.ai.priceOverride),
+    );
+    const decision = await this.budget.reserve(company, context.runId, estimate);
+    if (!decision.allowed) {
+      this.logger.warn(`IA: limite mensal da empresa ${company.id} sem saldo (${decision.reason}); passando para humano.`);
+      return this.handoff(context, company, settings, "AI_LIMIT_REACHED", null);
+    }
+
     const outcome = await this.model.generate(request);
     if (outcome.kind === "error") return this.onModelError(context, company, settings, outcome);
 
-    const decision = interpret(outcome.message);
-    const runRowId = await this.recordRun(context, outcome.message, outcome.latencyMs, decision);
-    if (decision.kind === "reply") return this.reply(context, company, decision.text, runRowId);
-    return this.handoff(context, company, settings, decision.reason, runRowId);
+    const modelDecision = interpret(outcome.message);
+    const runRowId = await this.recordRun(context, outcome.message, outcome.latencyMs, modelDecision);
+    await this.budget.recordThresholds(company);
+    if (modelDecision.kind === "reply") return this.reply(context, company, modelDecision.text, runRowId);
+    return this.handoff(context, company, settings, modelDecision.reason, runRowId);
   }
 
   /** Contexto enviado ao modelo. Tudo filtrado pela empresa E pela conversa do lote. */
@@ -198,7 +219,8 @@ export class AiReplyService {
       cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
     };
     const id = randomUUID();
-    await this.prisma.aiRun.create({
+    // Custo real e liberação da reserva na mesma transação: o saldo nunca conta os dois nem nenhum.
+    const create = this.prisma.aiRun.create({
       data: {
         id,
         ...(await this.runOrigin(context)),
@@ -214,6 +236,7 @@ export class AiReplyService {
         messageCount: context.messages.length,
       },
     });
+    await this.prisma.$transaction([create, this.prisma.aiBudgetReservation.deleteMany({ where: { id: context.runId } })]);
     return id;
   }
 
@@ -231,8 +254,8 @@ export class AiReplyService {
     settings: ResolvedAiSettings,
     outcome: Extract<ModelOutcome, { kind: "error" }>,
   ): Promise<void> {
-    // Sem consumo informado: tokens e custo ficam nulos (não inventamos números).
-    await this.prisma.aiRun.create({
+    // Sem consumo informado: tokens e custo ficam nulos (não inventamos números) e a reserva é liberada.
+    const create = this.prisma.aiRun.create({
       data: {
         id: randomUUID(),
         ...(await this.runOrigin(context)),
@@ -245,6 +268,7 @@ export class AiReplyService {
         messageCount: context.messages.length,
       },
     });
+    await this.prisma.$transaction([create, this.prisma.aiBudgetReservation.deleteMany({ where: { id: context.runId } })]);
     const status = outcome.status ? ` HTTP ${outcome.status}` : "";
     this.logger.warn(
       `IA: falha na chamada ao modelo (${outcome.errorType}${status}) na conversa ${context.conversationId}, tentativa ${context.attempts}/${AI_MAX_ATTEMPTS}.`,
@@ -281,7 +305,7 @@ export class AiReplyService {
   ): Promise<void> {
     const transfer = async (tx: Prisma.TransactionClient) => {
       await this.completeRun(tx, context.runId, "DONE", `HANDOFF_${reason}`);
-      await this.switchToHuman(tx, context, reason);
+      await this.switchToHuman(tx, context, reason, true);
     };
     try {
       await this.outbound.send(company, context.conversationId, settings.handoffMessage ?? DEFAULT_HANDOFF_MESSAGE, {
@@ -307,7 +331,24 @@ export class AiReplyService {
     this.events.emitHumanQueued(context.companyId);
   }
 
-  private async switchToHuman(tx: Prisma.TransactionClient, context: RunContext, reason: AiHandoffReason): Promise<void> {
+  /**
+   * Fase 7: a IA foi pausada entre o recebimento e a execução. A conversa vai para a fila humana, sem mensagem e sem
+   * contar como transferência feita pela IA no Analytics (a IA não agiu).
+   */
+  private async routeToTeam(context: RunContext): Promise<void> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.completeRun(tx, context.runId, "CANCELED", "AI_PAUSED");
+        await this.switchToHuman(tx, context, "AI_PAUSED", false);
+      });
+    } catch (error) {
+      if (error instanceof RunInvalidatedError) return;
+      throw error;
+    }
+    this.events.emitHumanQueued(context.companyId);
+  }
+
+  private async switchToHuman(tx: Prisma.TransactionClient, context: RunContext, reason: AiHandoffReason, aiActed: boolean): Promise<void> {
     const now = new Date();
     const { count } = await tx.conversation.updateMany({
       where: { id: context.conversationId, companyId: context.companyId, mode: "AI", status: "OPEN" },
@@ -315,7 +356,7 @@ export class AiReplyService {
       data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: reason, aiHandoffAt: now, ...queuedData(now) },
     });
     if (count === 0) return;
-    await markAiHandoff(tx, context.conversationId, now);
+    if (aiActed) await markAiHandoff(tx, context.conversationId, now);
     await markQueued(tx, context.conversationId, now);
     await this.audit.record(
       {
@@ -324,10 +365,11 @@ export class AiReplyService {
         entityType: "Conversation",
         entityId: context.conversationId,
         companyId: context.companyId,
-        metadata: { reason: "AI_HANDOFF" },
+        metadata: { reason: aiActed ? "AI_HANDOFF" : reason },
       },
       tx,
     );
+    if (!aiActed) return;
     await this.audit.record(
       {
         action: AUDIT_ACTIONS.CONVERSATION_AI_HANDOFF,

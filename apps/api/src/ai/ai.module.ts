@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AnalyticsModule } from "../analytics/analytics.module.js";
 import { WhatsAppModule } from "../whatsapp/whatsapp.module.js";
 import { AiAdminController, AiCompanyController } from "./ai.controller.js";
+import { AiBudgetService } from "./ai-budget.service.js";
 import { AiModelClient } from "./ai-model.client.js";
 import { AiReplyService } from "./ai-reply.service.js";
 import { AiSettingsService } from "./ai-settings.service.js";
@@ -13,7 +14,7 @@ import { KnowledgeService } from "./knowledge.service.js";
 @Module({
   imports: [WhatsAppModule, AnalyticsModule],
   controllers: [AiCompanyController, AiAdminController],
-  providers: [AiModelClient, AiSettingsService, KnowledgeService, AiUsageService, AiReplyService, AiWorker],
-  exports: [AiWorker, AiModelClient],
+  providers: [AiModelClient, AiSettingsService, KnowledgeService, AiUsageService, AiReplyService, AiWorker, AiBudgetService],
+  exports: [AiWorker, AiModelClient, AiBudgetService],
 })
 export class AiModule {}

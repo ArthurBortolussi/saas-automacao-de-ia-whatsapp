@@ -6,6 +6,7 @@ import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
 import { uniqueViolationIndex } from "../common/prisma-errors.js";
 import { messagePreview } from "../conversations/conversation.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { businessClosedPeriod, companyBlockedForShare, loadCompanyRuntime, type CompanyRuntime } from "../settings/runtime.js";
 import { queuedData, releasedData } from "../team/conversation-state.js";
 import { ConversationEvents } from "./conversation-events.js";
 import { phoneVariants } from "./phone-variants.js";
@@ -20,8 +21,18 @@ import {
 } from "./webhook-payload.js";
 import { WhatsAppAccountsService } from "./whatsapp-accounts.service.js";
 import { classifyMetaError } from "./whatsapp-errors.js";
+import { WhatsAppOutboundService } from "./whatsapp-outbound.service.js";
 
-export type ProcessOutcome = { result: "processed" | "ignored"; companyId: string | null; retryLater: boolean };
+export type ProcessOutcome = {
+  result: "processed" | "ignored";
+  companyId: string | null;
+  retryLater: boolean;
+  /** Fase 7: mensagens descartadas (ex.: COMPANY_SUSPENDED). O evento nunca é reprocessado. */
+  ignoredReason: string | null;
+};
+
+/** Mensagem recebida para uma empresa suspensa: nada é gravado. */
+const DISCARDED = "COMPANY_SUSPENDED";
 
 /**
  * Status de entrega só avançam. Cada status de destino lista de quais estados ele pode vir;
@@ -66,9 +77,11 @@ function contactName(profileName: string | undefined, waId: string): string {
   return clean && clean.length >= 1 ? clean : `+${waId}`;
 }
 
-async function defaultConversationMode(tx: Prisma.TransactionClient, companyId: string): Promise<ConversationMode> {
+/** Modo das conversas novas/reabertas. Fase 7: com a IA pausada pela empresa, o cliente vai para a equipe. */
+async function defaultConversationMode(tx: Prisma.TransactionClient, companyId: string, runtime: CompanyRuntime): Promise<ConversationMode> {
   const settings = await tx.aiSettings.findUnique({ where: { companyId }, select: { defaultConversationMode: true } });
-  return settings?.defaultConversationMode ?? "AI";
+  const mode = settings?.defaultConversationMode ?? "AI";
+  return mode === "AI" && runtime.aiPaused ? "HUMAN" : mode;
 }
 
 @Injectable()
@@ -80,6 +93,7 @@ export class WebhookProcessorService {
     private readonly accounts: WhatsAppAccountsService,
     private readonly events: ConversationEvents,
     private readonly audit: AuditService,
+    private readonly outbound: WhatsAppOutboundService,
   ) {}
 
   /**
@@ -89,11 +103,13 @@ export class WebhookProcessorService {
   async process(payload: unknown): Promise<ProcessOutcome> {
     const envelope = webhookEnvelopeSchema.safeParse(payload);
     if (!envelope.success || envelope.data.object !== "whatsapp_business_account") {
-      return { result: "ignored", companyId: null, retryLater: false };
+      return { result: "ignored", companyId: null, retryLater: false, ignoredReason: null };
     }
     let companyId: string | null = null;
     let handled = false;
     let retryLater = false;
+    let discarded = false;
+    let worked = false;
 
     for (const entry of envelope.data.entry) {
       for (const change of entry.changes) {
@@ -117,33 +133,57 @@ export class WebhookProcessorService {
         }
         for (const raw of value.data.messages ?? []) {
           const message = inboundMessageSchema.safeParse(raw);
-          if (message.success) await this.handleInbound(account, message.data, profiles.get(message.data.from));
+          if (!message.success) continue;
+          if ((await this.handleInbound(account, message.data, profiles.get(message.data.from))) === "discarded") discarded = true;
+          else worked = true;
         }
+        // Status de entrega só atualizam mensagens já existentes (histórico); continuam valendo na suspensão.
         for (const raw of value.data.statuses ?? []) {
           const status = statusSchema.safeParse(raw);
-          if (status.success && !(await this.handleStatus(account.companyId, status.data))) retryLater = true;
+          if (!status.success) continue;
+          worked = true;
+          if (!(await this.handleStatus(account.companyId, status.data))) retryLater = true;
         }
       }
     }
-    return { result: handled ? "processed" : "ignored", companyId, retryLater };
+    return {
+      // Evento só com mensagens descartadas fica IGNORED (com o motivo), nunca PROCESSED.
+      result: handled && (worked || !discarded) ? "processed" : "ignored",
+      companyId,
+      retryLater,
+      ignoredReason: discarded ? DISCARDED : null,
+    };
   }
 
-  private async handleInbound(account: WhatsAppAccount, message: InboundMessagePayload, profileName: string | undefined): Promise<void> {
+  /**
+   * Fase 7: empresa suspensa → a mensagem é DESCARTADA (nada de contato, conversa, mensagem, fila ou resposta) e
+   * não é recuperada depois da reativação. A checagem é feita na transação, com a linha da empresa travada para
+   * leitura: um evento que já estava na fila quando a suspensão foi gravada também é descartado.
+   */
+  private async handleInbound(
+    account: WhatsAppAccount,
+    message: InboundMessagePayload,
+    profileName: string | undefined,
+  ): Promise<"stored" | "duplicate" | "discarded"> {
     const companyId = account.companyId;
     // Atalho de idempotência (a garantia real é o índice único companyId+externalId).
     const already = await this.prisma.message.findUnique({
       where: { companyId_externalId: { companyId, externalId: message.id } },
       select: { id: true },
     });
-    if (already) return;
+    if (already) return "duplicate";
 
     const at = metaTime(message.timestamp);
     const body = inboundBody(message);
-    let created: { conversationId: string; messageId: string; queued: boolean };
+    let created: { conversationId: string; messageId: string; queued: boolean; outbox: string[] } | null;
     try {
       created = await this.prisma.$transaction(async (tx) => {
+        if (await companyBlockedForShare(tx, companyId)) return null;
+        const runtime = await loadCompanyRuntime(tx, companyId);
         const contact = await this.findOrCreateContact(tx, companyId, message.from, profileName);
-        const conversation = await this.conversationForInbound(tx, companyId, contact.id);
+        // Fase 7: primeiro contato do cliente com a empresa (gravado uma única vez; reenvio do webhook desfaz tudo).
+        const firstContact = (await tx.contact.updateMany({ where: { id: contact.id, welcomeHandledAt: null }, data: { welcomeHandledAt: new Date() } })).count === 1;
+        const conversation = await this.conversationForInbound(tx, companyId, contact.id, runtime);
 
         const row = await tx.message.create({
           data: {
@@ -174,15 +214,55 @@ export class WebhookProcessorService {
         if (aiMayReply(conversation.mode)) {
           await tx.aiReplyTask.create({ data: { companyId, conversationId: conversation.id, messageId: row.id } });
         }
-        return { conversationId: conversation.id, messageId: row.id, queued: conversation.queued };
+        const outbox = await this.automaticMessages(tx, runtime, conversation.id, firstContact, at);
+        return { conversationId: conversation.id, messageId: row.id, queued: conversation.queued, outbox };
       });
     } catch (error) {
       // Corrida com outro processamento do mesmo evento: a outra transação já gravou.
-      if (uniqueViolationIndex(error) === "Message_companyId_externalId_key") return;
+      if (uniqueViolationIndex(error) === "Message_companyId_externalId_key") return "duplicate";
       throw error;
     }
+    if (!created) return "discarded";
+    // Na ordem em que foram gravadas (boas-vindas antes do aviso de fora do expediente); falhas seguem o outbox.
+    for (const messageId of created.outbox) await this.outbound.dispatch(messageId);
     this.events.emitInboundMessage({ companyId, conversationId: created.conversationId, messageId: created.messageId });
     if (created.queued) this.events.emitHumanQueued(companyId);
+    return "stored";
+  }
+
+  /**
+   * Fase 7: mensagens automáticas do recebimento, gravadas na MESMA transação da mensagem do cliente (exatamente
+   * uma vez, mesmo com webhooks repetidos ou simultâneos — a linha da conversa está travada):
+   * 1. boas-vindas: só no primeiro contato do cliente com a empresa;
+   * 2. fora do expediente: pelo horário GERAL do negócio (não o da IA nem o da equipe), uma vez por período fechado
+   *    contínuo (identificado pelo fim da última abertura), mesmo que a IA continue respondendo.
+   */
+  private async automaticMessages(
+    tx: Prisma.TransactionClient,
+    runtime: CompanyRuntime,
+    conversationId: string,
+    firstContact: boolean,
+    at: Date,
+  ): Promise<string[]> {
+    const outbox: string[] = [];
+    if (firstContact && runtime.messages.welcome.enabled) {
+      const result = await this.outbound.enqueueSystemInTx(tx, runtime.companyId, conversationId, runtime.messages.welcome.text);
+      if ("messageId" in result) outbox.push(result.messageId);
+    }
+    if (runtime.messages.afterHours.enabled) {
+      const period = businessClosedPeriod(runtime, at);
+      if (period) {
+        const current = await tx.conversation.findUniqueOrThrow({ where: { id: conversationId }, select: { afterHoursNoticeKey: true } });
+        if (current.afterHoursNoticeKey !== period) {
+          const result = await this.outbound.enqueueSystemInTx(tx, runtime.companyId, conversationId, runtime.messages.afterHours.text);
+          if ("messageId" in result) {
+            outbox.push(result.messageId);
+            await tx.conversation.update({ where: { id: conversationId }, data: { afterHoursNoticeKey: period } });
+          }
+        }
+      }
+    }
+    return outbox;
   }
 
   /**
@@ -197,6 +277,7 @@ export class WebhookProcessorService {
     tx: Prisma.TransactionClient,
     companyId: string,
     contactId: string,
+    runtime: CompanyRuntime,
   ): Promise<{ id: string; mode: ConversationMode; queued: boolean }> {
     const now = new Date();
     const existing = await tx.conversation.findFirst({
@@ -205,7 +286,7 @@ export class WebhookProcessorService {
       select: { id: true },
     });
     if (!existing) {
-      const mode = await defaultConversationMode(tx, companyId);
+      const mode = await defaultConversationMode(tx, companyId, runtime);
       const human = mode === "HUMAN";
       const conversation = await tx.conversation.create({
         data: { companyId, contactId, channel: "WHATSAPP", mode, cycleStartedAt: now, lastActivityAt: now, ...(human ? queuedData(now) : {}) },
@@ -225,7 +306,7 @@ export class WebhookProcessorService {
     if (!current) throw new Error("Conversa sumiu durante o recebimento.");
 
     if (current.status === "CLOSED") {
-      const mode = await defaultConversationMode(tx, companyId);
+      const mode = await defaultConversationMode(tx, companyId, runtime);
       const human = mode === "HUMAN";
       await tx.conversation.update({
         where: { id: existing.id },
@@ -252,6 +333,17 @@ export class WebhookProcessorService {
         await this.recordQueued(tx, companyId, existing.id, "REOPENED");
       }
       return { id: existing.id, mode, queued: human };
+    }
+
+    // Fase 7: IA pausada pela empresa → a nova mensagem segue para a equipe (fila), sem resposta automática.
+    if (current.mode === "AI" && current.status === "OPEN" && runtime.aiPaused) {
+      await tx.conversation.update({
+        where: { id: existing.id },
+        data: { mode: "HUMAN", modeBeforePause: null, aiHandoffReason: "AI_PAUSED", aiHandoffAt: now, ...queuedData(now) },
+      });
+      await markQueued(tx, existing.id, now);
+      await this.recordQueued(tx, companyId, existing.id, "AI_PAUSED");
+      return { id: existing.id, mode: "HUMAN", queued: true };
     }
 
     if (current.mode === "HUMAN" && current.status === "OPEN") {

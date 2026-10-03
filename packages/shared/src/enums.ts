@@ -62,6 +62,9 @@ export const AI_HANDOFF_REASONS = [
   "AI_ERROR",
   "UNSUPPORTED_CONTENT",
   "CONVERSATION_LIMIT",
+  // Fase 7
+  "AI_PAUSED",
+  "AI_LIMIT_REACHED",
 ] as const;
 export type AiHandoffReason = (typeof AI_HANDOFF_REASONS)[number];
 
@@ -99,3 +102,13 @@ export type AiApiSource = (typeof AI_API_SOURCES)[number];
 /** Como um ciclo de atendimento começou (BACKFILL = reconstruído a partir de dados anteriores à Fase 6). */
 export const CYCLE_ORIGINS = ["NEW_CONVERSATION", "REOPENED", "BACKFILL"] as const;
 export type CycleOrigin = (typeof CYCLE_ORIGINS)[number];
+
+// ---------------------------------------------------------------- FASE 7
+
+/** Grupos de configuração concedidos individualmente pelo proprietário. */
+export const SETTINGS_PERMISSIONS = ["AI", "SERVICE", "SCHEDULE", "MESSAGES"] as const;
+export type SettingsPermission = (typeof SETTINGS_PERMISSIONS)[number];
+
+/** Como uma data especial altera uma agenda. */
+export const SCHEDULE_OVERRIDES = ["DEFAULT", "CLOSED", "CUSTOM"] as const;
+export type ScheduleOverride = (typeof SCHEDULE_OVERRIDES)[number];

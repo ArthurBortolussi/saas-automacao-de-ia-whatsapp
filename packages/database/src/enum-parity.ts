@@ -23,6 +23,8 @@ import type {
   GlobalRole as SharedGlobalRole,
   MemberRole as SharedMemberRole,
   UserStatus as SharedUserStatus,
+  SettingsPermission as SharedSettingsPermission,
+  ScheduleOverride as SharedScheduleOverride,
 } from "@arthur-ai/shared";
 import type {
   AiApiSource,
@@ -49,6 +51,8 @@ import type {
   MessageDirection,
   MessageSenderType,
   UserStatus,
+  SettingsPermission,
+  ScheduleOverride,
 } from "./generated/prisma/client.js";
 
 // Falha o typecheck se os enums do Prisma e do pacote shared divergirem.
@@ -80,4 +84,6 @@ export type EnumParity = [
   Assert<Equals<AssignmentEndReason, SharedAssignmentEndReason>>,
   Assert<Equals<AiApiSource, SharedAiApiSource>>,
   Assert<Equals<CycleOrigin, SharedCycleOrigin>>,
+  Assert<Equals<SettingsPermission, SharedSettingsPermission>>,
+  Assert<Equals<ScheduleOverride, SharedScheduleOverride>>,
 ];

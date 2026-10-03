@@ -3,6 +3,7 @@ import type { User } from "@arthur-ai/database";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "@arthur-ai/database/password";
 import type { ChangePasswordInput, LoginInput, MeResponse } from "@arthur-ai/shared";
 import { AUDIT_ACTIONS, AuditService } from "../audit/audit.service.js";
+import { logoVersion } from "../companies/company.mapper.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { LoginRateLimiter } from "./login-rate-limiter.js";
 import { SessionService } from "./session.service.js";
@@ -81,7 +82,7 @@ export class AuthService {
     // FASE 1: no máximo um vínculo por usuário (CompanyMember.userId único).
     const membership = await this.prisma.companyMember.findFirst({
       where: { userId: user.id },
-      include: { company: { select: { id: true, name: true, slug: true, status: true } } },
+      include: { company: { select: { id: true, name: true, slug: true, status: true, logo: { select: { updatedAt: true } } } } },
     });
     return {
       user: {
@@ -91,7 +92,19 @@ export class AuthService {
         globalRole: user.globalRole,
         mustChangePassword: user.mustChangePassword,
       },
-      membership: membership ? { role: membership.role, company: membership.company, availability: membership.availability } : null,
+      membership: membership
+        ? {
+            role: membership.role,
+            company: {
+              id: membership.company.id,
+              name: membership.company.name,
+              slug: membership.company.slug,
+              status: membership.company.status,
+              logoVersion: logoVersion(membership.company.logo?.updatedAt),
+            },
+            availability: membership.availability,
+          }
+        : null,
     };
   }
 }

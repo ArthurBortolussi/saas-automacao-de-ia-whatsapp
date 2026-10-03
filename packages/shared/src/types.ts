@@ -18,7 +18,11 @@ import type {
   AgentAvailability,
   ConversationCloseReason,
   ConversationStatus,
+  SettingsPermission,
+  ScheduleOverride,
 } from "./enums.js";
+import type { AiUsageLevel } from "./settings-rules.js";
+import type { NationalHoliday, WeeklySchedule } from "./schedule-rules.js";
 
 // Formatos de resposta da API. Datas trafegam como string ISO.
 
@@ -47,7 +51,14 @@ export interface MeResponse {
   };
   membership: {
     role: MemberRole;
-    company: { id: string; name: string; slug: string; status: CompanyStatus };
+    company: {
+      id: string;
+      name: string;
+      slug: string;
+      status: CompanyStatus;
+      /** Fase 7: versão do logotipo (cache do navegador); null = sem logotipo. */
+      logoVersion: string | null;
+    };
     /** Fase 5: disponibilidade atual do funcionário (para o seletor do painel). */
     availability: AgentAvailability;
   } | null;
@@ -73,6 +84,10 @@ export interface CompanyDetail extends CompanySummary {
   address: string | null;
   businessHours: string | null;
   updatedAt: string;
+  /** Fase 7 */
+  timezone: string;
+  suspendedAt: string | null;
+  logoVersion: string | null;
 }
 
 export interface Paginated<T> {
@@ -90,6 +105,12 @@ export interface AdminDashboardResponse {
     users: number;
   };
   recentCompanies: CompanySummary[];
+}
+
+/** Fase 7: alertas do painel do SUPERADMIN (empresas suspensas e consumo da IA em 80% / 100% do limite). */
+export interface AdminAlertsResponse {
+  suspendedCompanies: number;
+  aiLimitAlerts: AiLimitAlertRow[];
 }
 
 export interface CompanyMemberItem {
@@ -157,6 +178,8 @@ export interface ConversationSummary {
   createdAt: string;
   contact: { id: string; name: string; phone: string; status: ContactStatus };
   assignedUser: UserRef | null;
+  /** Fase 7: na fila há mais tempo que o limite de espera da empresa (destaque na Inbox). */
+  queueOverdue: boolean;
 }
 
 export interface ConversationDetail extends Omit<ConversationSummary, "contact"> {
@@ -262,6 +285,9 @@ export interface AiSettingsView {
   scheduleEnd: string;
   /** Minutos sem atividade para encerrar automaticamente um atendimento só com a IA. */
   inactivityTimeoutMinutes: number;
+  /** Fase 7: pausa operacional pela empresa (independente de `enabled`). */
+  paused: boolean;
+  pausedAt: string | null;
   /** null enquanto a empresa usa só os valores padrão. */
   updatedAt: string | null;
 }
@@ -285,6 +311,30 @@ export interface AiStatusResponse {
   knowledge: { total: number; active: number; activeChars: number; contextLimitChars: number };
   /** O que o usuário atual pode editar. */
   permissions: { editSettings: boolean; editAdminSettings: boolean; editKnowledge: boolean };
+  /** Fase 7: situação do consumo do mês, SEM valores (OWNER/ADMIN e SUPERADMIN; null para funcionários). */
+  usageLevel: AiUsageLevel | null;
+  /** Fase 7: limite e consumo em USD. Somente SUPERADMIN (null para a empresa). */
+  budget: AiBudgetView | null;
+}
+
+/** Consumo do mês corrente (fuso da empresa) frente ao limite. Somente SUPERADMIN. */
+export interface AiBudgetView {
+  month: string;
+  timezone: string;
+  /** Limite individual (USD); null = sem limite. */
+  limitUsd: string | null;
+  /** Limite padrão da plataforma (aplicado na habilitação, se a empresa ainda não tem limite). */
+  platformDefaultUsd: string | null;
+  /** Origem aplicada pelo bloqueio neste servidor (simulador ou API oficial). */
+  enforcedSource: "OFFICIAL" | "SIMULATED";
+  /** Gasto estimado no mês, na origem aplicada. */
+  spentUsd: string;
+  /** Reservas de execuções em andamento. */
+  reservedUsd: string;
+  percent: number | null;
+  level: AiUsageLevel;
+  /** Separação por origem (o simulado nunca é custo real). */
+  bySource: { source: "OFFICIAL" | "SIMULATED" | "UNVERIFIED"; spentUsd: string; runs: number }[];
 }
 
 export interface KnowledgeEntryItem {
@@ -373,6 +423,8 @@ export interface TeamResponse {
   canManage: boolean;
   queue: { waiting: number };
   settings: { inactivityTimeoutMinutes: number };
+  /** Fase 7: quem pode editar o prazo de inatividade (permissão "Atendimento e fila"). */
+  canEditSettings: boolean;
 }
 
 export interface EligibleAssignee {
@@ -380,4 +432,142 @@ export interface EligibleAssignee {
   name: string;
   activeConversations: number;
   maxConcurrent: number;
+}
+
+// ---------------------------------------------------------------- FASE 7
+
+export interface CompanySettingsPermissions {
+  /** Grupos que o usuário atual pode editar. */
+  editAi: boolean;
+  editService: boolean;
+  editSchedule: boolean;
+  editMessages: boolean;
+  /** Nome comercial, logotipo e fuso: só o proprietário. */
+  editCompany: boolean;
+  /** Conceder/revogar permissões: só o proprietário. */
+  managePermissions: boolean;
+  /** Grupos concedidos ao usuário atual (vazio para o proprietário, que tem todos). */
+  granted: SettingsPermission[];
+}
+
+export interface AutoMessageView {
+  enabled: boolean;
+  /** Texto personalizado (null = padrão). */
+  message: string | null;
+  /** Texto que de fato é enviado. */
+  effective: string;
+  defaultMessage: string;
+}
+
+export interface MemberPermissionItem {
+  userId: string;
+  name: string;
+  role: MemberRole;
+  active: boolean;
+  permissions: SettingsPermission[];
+  isMe: boolean;
+}
+
+export interface CompanySettingsResponse {
+  company: CompanyDetail;
+  schedules: { timezone: string; business: WeeklySchedule; ai: WeeklySchedule; team: WeeklySchedule };
+  /** Agora, considerando exceções e fuso. */
+  openNow: { business: boolean; ai: boolean; team: boolean };
+  messages: { welcome: AutoMessageView; queueNotice: AutoMessageView; afterHours: AutoMessageView; closing: AutoMessageView };
+  service: { maxQueueWaitMinutes: number; inactivityTimeoutMinutes: number };
+  ai: { enabled: boolean; paused: boolean; pausedAt: string | null };
+  permissions: CompanySettingsPermissions;
+  /** Somente para o proprietário: permissões de cada membro. */
+  members: MemberPermissionItem[] | null;
+}
+
+export interface DayOverrideView {
+  mode: ScheduleOverride;
+  start: string | null;
+  end: string | null;
+}
+
+export interface ScheduleExceptionItem {
+  id: string;
+  date: string;
+  label: string;
+  business: DayOverrideView;
+  ai: DayOverrideView;
+  team: DayOverrideView;
+  updatedAt: string;
+}
+
+export interface CalendarResponse {
+  year: number;
+  timezone: string;
+  /** Referência: nunca fecham a empresa sozinhos. */
+  holidays: NationalHoliday[];
+  exceptions: ScheduleExceptionItem[];
+  canEdit: boolean;
+}
+
+/** Alertas do painel da empresa (OWNER/ADMIN). Nunca contém valores financeiros. */
+export interface CompanyAlertsResponse {
+  queue: { overdue: number; waiting: number; maxQueueWaitMinutes: number };
+  aiUsage: AiUsageLevel;
+  aiPaused: boolean;
+}
+
+export interface SupportContacts {
+  email: string | null;
+  whatsapp: string | null;
+  emailUrl: string | null;
+  whatsappUrl: string | null;
+}
+
+export interface PlatformSettingsView {
+  supportEmail: string | null;
+  supportWhatsapp: string | null;
+  defaultAiMonthlyLimitUsd: string | null;
+  updatedAt: string | null;
+}
+
+/** Ambiente de uma integração neste servidor. NOT_CONFIGURED = variáveis ausentes. */
+export type IntegrationEnvironment = "OFFICIAL" | "SIMULATED" | "NOT_CONFIGURED";
+
+/**
+ * Estado BÁSICO das integrações, só com fatos verificáveis do sistema. Credencial configurada não prova conexão;
+ * o simulador nunca é apresentado como conexão real validada. Sem segredos.
+ */
+export interface IntegrationsStatus {
+  whatsapp: {
+    configured: boolean;
+    environment: IntegrationEnvironment;
+    graphApiVersion: string;
+    accounts: { active: number; pending: number; error: number; disabled: number };
+    lastWebhookAt: string | null;
+    lastSentAt: string | null;
+    /** Envio aceito pela API configurada no ambiente atual (no simulador, não é validação real). */
+    observedSuccess: boolean;
+  };
+  anthropic: {
+    configured: boolean;
+    environment: IntegrationEnvironment;
+    model: string;
+    companiesEnabled: number;
+    companiesPaused: number;
+    lastOfficialSuccessAt: string | null;
+    lastSimulatedSuccessAt: string | null;
+  };
+}
+
+export interface AiLimitAlertRow {
+  companyId: string;
+  name: string;
+  limitUsd: string;
+  spentUsd: string;
+  percent: number;
+  level: Extract<AiUsageLevel, "NEAR_LIMIT" | "LIMIT_REACHED">;
+  source: "OFFICIAL" | "SIMULATED";
+}
+
+export interface AdminPlatformSettingsResponse {
+  settings: PlatformSettingsView;
+  integrations: IntegrationsStatus;
+  aiLimitAlerts: AiLimitAlertRow[];
 }

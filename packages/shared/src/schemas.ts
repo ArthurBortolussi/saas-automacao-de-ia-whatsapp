@@ -3,7 +3,18 @@ import { isValidCnpj, normalizeCnpj } from "./cnpj.js";
 import { ANALYTICS_PERIODS, DEFAULT_ANALYTICS_PERIOD } from "./analytics.js";
 import { AI_TIME_PATTERN, isValidTimeZone, KNOWLEDGE_CONTENT_MAX, KNOWLEDGE_TITLE_MAX } from "./ai-rules.js";
 import { CONVERSATION_ACTIONS } from "./conversation-rules.js";
-import { AGENT_AVAILABILITIES, AI_TONES, BRAZILIAN_STATES, type ConversationMode, CONTACT_SOURCES, CONTACT_STATUSES, MEMBER_ROLES } from "./enums.js";
+import {
+  AGENT_AVAILABILITIES,
+  AI_TONES,
+  BRAZILIAN_STATES,
+  type ConversationMode,
+  CONTACT_SOURCES,
+  CONTACT_STATUSES,
+  MEMBER_ROLES,
+  SCHEDULE_OVERRIDES,
+  SETTINGS_PERMISSIONS,
+} from "./enums.js";
+import { AUTO_MESSAGE_MAX_LENGTH, HOLIDAY_YEAR_MAX, HOLIDAY_YEAR_MIN, isValidDate, MAX_QUEUE_WAIT_LIMIT_MINUTES } from "./schedule-rules.js";
 import { normalizePhone } from "./phone.js";
 import {
   DEFAULT_MAX_CONCURRENT,
@@ -377,6 +388,8 @@ export const updateAdminAiSettingsSchema = strictObject({
   enabled: z.boolean({ error: "Valor inválido." }).optional(),
   // Pausado não faz sentido como modo inicial: só IA ou humano.
   defaultConversationMode: z.enum(DEFAULT_CONVERSATION_MODES, { error: "Modo inválido." }).optional(),
+  // Fase 7: limite mensal de custo estimado (USD). null = sem limite.
+  monthlyLimitUsd: z.lazy(() => usdAmountSchema).nullable().optional(),
 }).refine((data) => Object.keys(data).length > 0, nonEmpty);
 export type UpdateAdminAiSettingsInput = z.input<typeof updateAdminAiSettingsSchema>;
 export type UpdateAiSettingsData = z.output<typeof updateAdminAiSettingsSchema>;
@@ -433,3 +446,146 @@ export const transferConversationSchema = strictObject({
   toUserId: uuidSchema,
 });
 export type TransferConversationInput = z.infer<typeof transferConversationSchema>;
+
+
+// ---------------------------------------------------------------- FASE 7
+
+export const USD_LIMIT_MAX = 1_000_000;
+
+/** Valor em USD com no máximo 2 casas (limites mensais). */
+export const usdAmountSchema = z
+  .number({ error: "Informe o valor em dólares." })
+  .min(0.01, "O valor mínimo é US$ 0,01.")
+  .max(USD_LIMIT_MAX, "Valor muito alto.")
+  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, "Use no máximo 2 casas decimais.");
+
+/** Operações críticas exigem confirmação explícita também no backend (não só o diálogo da tela). */
+const confirmation = z.literal(true, { error: "Confirme a operação." });
+
+const timezoneSchema = z
+  .string({ error: "Informe o fuso horário." })
+  .trim()
+  .min(1, "Informe o fuso horário.")
+  .max(64, "Fuso horário inválido.")
+  .refine(isValidTimeZone, "Fuso horário inválido (use o formato IANA, ex.: America/Sao_Paulo).");
+
+/** Aba Empresa (somente o proprietário): nome comercial e fuso. O logotipo tem rota própria (upload). */
+export const updateCompanyProfileSchema = strictObject({
+  name: text("o nome comercial", 2, 120).optional(),
+  timezone: timezoneSchema.optional(),
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateCompanyProfileInput = z.infer<typeof updateCompanyProfileSchema>;
+
+const scheduleDaysSchema = z
+  .array(z.number().int().min(0).max(6), { error: "Dias inválidos." })
+  .max(7, "Dias inválidos.")
+  .transform((days) => [...new Set(days)].sort((a, b) => a - b));
+
+export const weeklyScheduleSchema = strictObject({
+  alwaysOn: z.boolean({ error: "Valor inválido." }),
+  days: scheduleDaysSchema,
+  start: timeSchema,
+  end: timeSchema,
+}).superRefine((data, ctx) => {
+  if (data.alwaysOn) return;
+  if (data.days.length === 0) ctx.addIssue({ code: "custom", path: ["days"], message: "Escolha ao menos um dia." });
+  if (data.start === data.end) ctx.addIssue({ code: "custom", path: ["end"], message: "O término deve ser diferente do início." });
+});
+export type WeeklyScheduleInput = z.output<typeof weeklyScheduleSchema>;
+
+/** Aba Horários: as três agendas são independentes; envie só as que mudaram. */
+export const updateSchedulesSchema = strictObject({
+  business: weeklyScheduleSchema.optional(),
+  ai: weeklyScheduleSchema.optional(),
+  team: weeklyScheduleSchema.optional(),
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateSchedulesInput = z.output<typeof updateSchedulesSchema>;
+
+const dayOverrideSchema = strictObject({
+  mode: z.enum(SCHEDULE_OVERRIDES, { error: "Opção inválida." }),
+  start: z.preprocess((value) => (value === "" ? null : value), timeSchema.nullable().optional()),
+  end: z.preprocess((value) => (value === "" ? null : value), timeSchema.nullable().optional()),
+})
+  .superRefine((data, ctx) => {
+    if (data.mode !== "CUSTOM") return;
+    if (!data.start) ctx.addIssue({ code: "custom", path: ["start"], message: "Informe o início." });
+    if (!data.end) ctx.addIssue({ code: "custom", path: ["end"], message: "Informe o término." });
+    if (data.start && data.start === data.end) ctx.addIssue({ code: "custom", path: ["end"], message: "O término deve ser diferente do início." });
+  })
+  // Fora do horário especial, horários não são guardados.
+  .transform((data) => (data.mode === "CUSTOM" ? { mode: data.mode, start: data.start ?? null, end: data.end ?? null } : { mode: data.mode, start: null, end: null }));
+
+export const dateOnlySchema = z.string({ error: "Informe a data." }).refine(isValidDate, "Data inválida (use AAAA-MM-DD).");
+
+/** Data especial: cada agenda (negócio, IA, equipe) segue a semana, fecha ou usa um horário especial. */
+export const scheduleExceptionSchema = strictObject({
+  date: dateOnlySchema,
+  label: text("a descrição", 2, 120),
+  business: dayOverrideSchema,
+  ai: dayOverrideSchema,
+  team: dayOverrideSchema,
+});
+export type ScheduleExceptionInput = z.input<typeof scheduleExceptionSchema>;
+export type ScheduleExceptionData = z.output<typeof scheduleExceptionSchema>;
+
+export const calendarQuerySchema = strictObject({
+  year: z.coerce.number().int().min(HOLIDAY_YEAR_MIN, "Ano inválido.").max(HOLIDAY_YEAR_MAX, "Ano inválido.").optional(),
+});
+export type CalendarQuery = z.output<typeof calendarQuerySchema>;
+
+const autoMessageText = clearable(
+  z.string().trim().min(2, "Mínimo de 2 caracteres.").max(AUTO_MESSAGE_MAX_LENGTH, `Máximo de ${AUTO_MESSAGE_MAX_LENGTH} caracteres.`),
+);
+
+/** Aba Mensagens: ligar/desligar e personalizar (texto vazio = volta ao padrão). */
+export const updateAutoMessagesSchema = strictObject({
+  welcomeEnabled: z.boolean({ error: "Valor inválido." }).optional(),
+  welcomeMessage: autoMessageText,
+  queueNoticeEnabled: z.boolean({ error: "Valor inválido." }).optional(),
+  queueNoticeMessage: autoMessageText,
+  afterHoursEnabled: z.boolean({ error: "Valor inválido." }).optional(),
+  afterHoursMessage: autoMessageText,
+  closingEnabled: z.boolean({ error: "Valor inválido." }).optional(),
+  closingMessage: autoMessageText,
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateAutoMessagesInput = z.output<typeof updateAutoMessagesSchema>;
+
+/** Aba Atendimento: limite de espera (alerta) e prazo de inatividade da equipe (o mesmo dado da Fase 5). */
+export const updateServiceSettingsSchema = strictObject({
+  maxQueueWaitMinutes: z
+    .number({ error: "Informe o tempo." })
+    .int("Use minutos inteiros.")
+    .min(1, "Mínimo de 1 minuto.")
+    .max(MAX_QUEUE_WAIT_LIMIT_MINUTES, "Máximo de 24 horas.")
+    .optional(),
+  inactivityTimeoutMinutes: updateTeamSettingsSchema.shape.inactivityTimeoutMinutes.optional(),
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdateServiceSettingsInput = z.infer<typeof updateServiceSettingsSchema>;
+
+/** Aba Permissões (somente o proprietário): conjunto completo de grupos do membro. */
+export const updateMemberPermissionsSchema = strictObject({
+  permissions: z
+    .array(z.enum(SETTINGS_PERMISSIONS, { error: "Permissão inválida." }), { error: "Permissões inválidas." })
+    .max(SETTINGS_PERMISSIONS.length, "Permissões inválidas.")
+    .transform((items) => [...new Set(items)].sort()),
+  confirm: confirmation,
+});
+export type UpdateMemberPermissionsInput = z.output<typeof updateMemberPermissionsSchema>;
+
+/** Pausar exige confirmação (interrompe as respostas automáticas); retomar não. */
+export const aiPauseSchema = z.discriminatedUnion("action", [
+  strictObject({ action: z.literal("PAUSE"), confirm: confirmation }),
+  strictObject({ action: z.literal("RESUME") }),
+], { error: "Ação inválida." });
+export type AiPauseInput = z.infer<typeof aiPauseSchema>;
+
+export const companySuspensionSchema = strictObject({ confirm: confirmation });
+export type CompanySuspensionInput = z.infer<typeof companySuspensionSchema>;
+
+/** Configuração da plataforma (somente SUPERADMIN). */
+export const updatePlatformSettingsSchema = strictObject({
+  supportEmail: clearable(emailSchema),
+  supportWhatsapp: clearable(phoneSchema),
+  defaultAiMonthlyLimitUsd: usdAmountSchema.nullable().optional(),
+}).refine((data) => Object.keys(data).length > 0, nonEmpty);
+export type UpdatePlatformSettingsInput = z.output<typeof updatePlatformSettingsSchema>;
