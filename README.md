@@ -3,10 +3,12 @@
 Plataforma B2B **gerenciada** de atendimento automatizado pelo WhatsApp, com IA (Claude, da Anthropic).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 6** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
+> **Estado atual: FASE 7** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
 > oficial da Meta** (Fase 3), **atendimento automático com IA + base de conhecimento** (Fase 4), **equipe,
-> distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5) e **Analytics e
-> relatórios com exportação em PDF e Excel** (Fase 6).
+> distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5), **Analytics e
+> relatórios com exportação em PDF e Excel** (Fase 6) e **configurações e administração da plataforma** (Fase 7:
+> permissões individuais, três horários, feriados, mensagens automáticas, pausa e limite mensal da IA, suspensão de
+> empresas, contatos de suporte e estado das integrações).
 >
 > ⚠️ Tudo foi testado **apenas com simuladores**: Graph API simulada (Meta) e API da Anthropic simulada. Nem a Meta
 > real nem o Claude real foram chamados até agora. Veja "Tipos de teste" abaixo antes de colocar em produção.
@@ -195,17 +197,18 @@ resultado, motivo, tokens de entrada/saída/escrita de cache/leitura de cache, l
 `apps/api/src/ai/pricing.ts`, conferidos na página oficial em 2026-10-02 (Sonnet 5.5: US$ 2 entrada, US$ 10 saída,
 US$ 2,50 escrita de cache de 5 min e US$ 0,20 leitura, por milhão de tokens). `AI_PRICE_*` substitui a tabela sem
 mudar o código. Execuções sem consumo informado (erro antes da resposta) ficam com tokens e custo **nulos**; modelo sem
-preço fica com custo nulo e é contado à parte. Não há limite de gasto (decisão do proprietário nesta fase).
+preço fica com custo nulo e é contado à parte. Limite mensal de custo estimado: ver Fase 7.
 
 **Permissões**
 | | SUPERADMIN | OWNER / ADMIN | AGENT |
 |---|---|---|---|
 | Ligar/desligar a IA, modo inicial das novas conversas | ✔ (aba IA do admin) | — | — |
-| Nome, tom, orientações, mensagem de transferência, horário e fuso | ✔ | ✔ (Configurações) | vê |
+| Nome, tom, orientações, mensagem de transferência (Fase 7: grupo "IA"; horário: grupo "Horários"; fuso: só o proprietário) | ✔ | ✔ com a permissão individual (Configurações) | vê; edita com a permissão |
 | Base de conhecimento: criar, editar, ativar/desativar, excluir | ✔ (qualquer empresa) | ✔ (só a própria) | vê só as ativas |
 | Aba Uso (consumo e custo) | ✔ | — | — |
 
-Tudo conferido no backend: a rota da empresa recusa os campos técnicos (400) e as edições exigem OWNER/ADMIN (403).
+Tudo conferido no backend: a rota da empresa recusa os campos técnicos (400) e as edições exigem o grupo de permissão
+correspondente (403; Fase 7).
 IDs de outra empresa respondem 404; rotas de outra empresa, 403.
 
 ### Equipe e atendimento humano (Fase 5)
@@ -348,6 +351,154 @@ ciclo). Ciclos anteriores de conversas já reabertas não existem nos dados e **
 entram nas contagens, mas não nas médias de tempo (não há como saber quando o atendimento humano foi pedido); a tela
 e os arquivos avisam quantos são.
 
+### Configurações e administração da plataforma (Fase 7)
+
+**Configurações da empresa** (`/dashboard/settings`, seis abas; todos os membros consultam, a edição é conferida na API):
+
+| Aba | O que tem | Quem edita |
+|---|---|---|
+| Empresa | Nome comercial, logotipo, fuso horário; dados cadastrais (só leitura) | Somente o **proprietário** |
+| IA | Pausar/retomar a IA (com confirmação), nome, tom, orientações, mensagem de transferência, encerramento da IA | Grupo **IA** |
+| Atendimento | Tempo máximo de espera na fila (alerta) e encerramento por inatividade da equipe | Grupo **Atendimento e fila** |
+| Horários | Horário geral do negócio, da IA e da equipe; calendário com feriados nacionais e datas especiais | Grupo **Horários** |
+| Mensagens | Boas-vindas, espera na fila, fora do expediente, encerramento (liga/desliga e texto) | Grupo **Mensagens** |
+| Permissões | Quem edita cada grupo | Somente o **proprietário** |
+
+**Permissões individuais** (`CompanyMember.settingsPermissions`): o proprietário tem tudo; administradores e
+funcionários editam só os grupos concedidos pelo proprietário (`PUT /companies/:id/settings/permissions/:userId`, com
+`confirm: true`). Ninguém altera as próprias permissões; proprietários não precisam de concessão; o alvo precisa ser
+membro da mesma empresa (outra → 404). A permissão é relida do banco a cada requisição: uma revogação vale na próxima
+ação, mesmo com a tela aberta. Migração: **administradores existentes receberam todos os grupos** (nenhum acesso foi
+retirado). Novos membros: ADMIN cadastrado pelo proprietário (ou pelo SUPERADMIN) recebe todos os grupos; cadastrado
+por outro ADMIN, recebe **no máximo os grupos de quem cadastrou** (sem escalonamento por uma conta criada por ele);
+funcionários começam sem grupos; promover a ADMIN não concede nada. O SUPERADMIN edita a IA (rotas da Fase 4), mas não
+as configurações operacionais da empresa nem as permissões. A base de conhecimento continua com OWNER/ADMIN (Fase 4).
+
+**Logotipo**: `PUT /companies/:id/logo` com o arquivo como corpo binário (`Content-Type` image/png, image/jpeg ou
+image/webp; até 512 KB). O tipo é conferido pelos **bytes** (SVG e outros formatos são recusados) e precisa bater com o
+cabeçalho; um upload inválido não toca no logotipo atual. Fica no **PostgreSQL** (tabela `CompanyLogo`), não em disco:
+sobrevive a reinícios e funciona com várias instâncias. É servido pela rota da empresa (`GET .../logo`, mesmo
+isolamento das outras rotas) com `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` e ETag.
+Limitação para o deploy: imagens no banco aumentam o backup; com muitos arquivos, um armazenamento de objetos (S3)
+seria melhor.
+
+**Fuso horário único** (`Company.timezone`, editado pelo proprietário): vale para os três horários, as datas especiais,
+os relatórios da empresa e o mês do limite da IA. A migração copiou o fuso que a empresa tinha escolhido para a IA
+(`AiSettings.timezone`, que continua existindo só em sincronia). Horários são sempre locais (HH:MM no fuso), nunca
+convertidos para UTC.
+
+**Três horários independentes** (mesma regra para os três: dias da semana + abertura/fechamento, ou 24 h; intervalos
+que viram a noite pertencem ao dia em que começam):
+
+| Horário | Onde fica | Para que serve |
+|---|---|---|
+| Geral do negócio | `CompanySettings` (padrão: seg–sex 8h–18h) | Só o aviso de atendimento fora do expediente |
+| IA | `AiSettings` (o mesmo da Fase 4) | Fora dele a IA não gera nem envia |
+| Equipe | `TeamSettings` (padrão: **24 h**, como na Fase 5) | Distribuição de **novos** atendimentos |
+
+Quando o expediente da equipe termina, ninguém recebe conversas novas (elas esperam na fila), mas quem está atendendo
+continua com as suas. Transferir e assumir manualmente continuam permitidos (é uma ação de quem está trabalhando).
+Quando o expediente começa, o worker da equipe (a cada `TEAM_WORKER_INTERVAL_MS`) distribui a fila sozinho, com as
+regras da Fase 5 (só Disponível, com vaga) — inclusive depois de um reinício da API. Alterar horários ou datas
+especiais também dispara uma verificação imediata.
+
+**Feriados e datas especiais**: os feriados **nacionais** são calculados localmente (sem API externa), conforme o
+calendário anual do governo federal: Confraternização Universal, Paixão de Cristo (móvel), Tiradentes, Dia do
+Trabalho, Independência, Nossa Senhora Aparecida, Finados, Proclamação da República, Consciência Negra (nacional desde
+2024, Lei 14.759/2023) e Natal. Pontos facultativos (Carnaval, Quarta-feira de Cinzas, Corpus Christi) e feriados
+estaduais/municipais **não** entram. Os feriados aparecem só como referência: **não fecham a empresa**. Para mudar o
+funcionamento de uma data, a empresa cadastra uma **data especial** (`ScheduleException`), com regra separada para cada
+horário (segue a semana, fechado ou horário especial). A data especial prevalece sobre a semana.
+
+**Mensagens automáticas** (operacionais, sem o Claude; aparecem na Inbox como "Sistema"):
+
+| Mensagem | Padrão | Quando |
+|---|---|---|
+| Boas-vindas | desligada | Só no **primeiro contato** do cliente com a empresa (`Contact.welcomeHandledAt`, gravado uma vez na transação da 1ª mensagem; reaberturas e webhooks repetidos não repetem). Clientes que já tinham escrito antes da Fase 7 foram marcados na migração |
+| Espera na fila | **ligada** (a da Fase 5) | Uma vez por entrada na fila; mudar o texto não reenvia |
+| Fora do expediente | desligada | Pelo **horário geral**, uma vez por **período fechado contínuo** (identificado pelo fim da última abertura, ex.: `2026-10-02T18:00`); várias mensagens na mesma noite = um aviso; depois que a empresa abre e fecha de novo, novo aviso. Vale mesmo que a IA continue respondendo |
+| Encerramento | desligada | Só no encerramento **manual** por um funcionário; nunca no automático |
+
+No primeiro contato fora do expediente, a ordem é boas-vindas → aviso. Boas-vindas, aviso e encerramento são gravados
+na **mesma transação** do evento (exatamente uma vez) e enviados pelo outbox da Fase 3 (janela de 24h, retentativas e
+falhas iguais). Não saem em conversa interna, pausada ou com a janela fechada (o encerramento registra o motivo na
+auditoria). Para evitar sequências desnecessárias, o aviso de fila não é enviado se o cliente acabou de receber o aviso
+de fora do expediente do mesmo período (`queueNoticeError = AFTER_HOURS_NOTICE`).
+
+**Espera excessiva na fila**: o tempo é contado no **relógio**, desde a entrada **atual** na fila (`queuedAt`),
+inclusive fora do expediente. Acima do limite (`TeamSettings.maxQueueWaitMinutes`, padrão 30), a conversa ganha
+destaque na Inbox (`ConversationSummary.queueOverdue`) e entra na contagem do painel (`GET /companies/:id/alerts`,
+OWNER/ADMIN). Nada é encerrado nem reordenado. Diferença para o Analytics (Fase 6, sem mudança): lá a "espera na
+fila" é a soma das esperas concluídas por atribuição desde a primeira entrada do ciclo.
+
+**Pausa da IA pela empresa** (`POST /companies/:id/ai/pause`, grupo IA; pausar exige `confirm: true`): estado separado
+da habilitação do SUPERADMIN (`AiSettings.pausedAt` × `enabled`). Ao pausar, sob a trava da equipe: tarefas
+pendentes/em geração são canceladas (uma resposta já em geração não é enviada — o envio exige a tarefa ainda em
+andamento) e os clientes que esperavam a IA vão para a fila humana. Durante a pausa, novas mensagens (e conversas
+novas/reabertas) vão direto para a equipe, com o motivo `AI_PAUSED` (não conta como transferência feita pela IA no
+Analytics). Ao retomar, a IA atende só as **próximas** mensagens; conversas humanas continuam humanas. Se o SUPERADMIN
+desligou a IA, a empresa não consegue retomá-la (409).
+
+**Limite mensal de custo estimado da IA** (USD, mês de calendário no fuso da empresa; só o SUPERADMIN vê e altera):
+- **Limite padrão** em **Configurações** do admin: copiado para a empresa no momento em que a IA é habilitada, se ela
+  nunca teve limite. Mudar o padrão depois não altera empresas que já têm limite. Empresas já habilitadas antes da
+  Fase 7 continuam **sem limite** até o SUPERADMIN definir um (estado preservado).
+- **Limite individual** na aba IA da empresa (admin). Em branco = sem limite.
+- **Gasto** = soma de `AiRun.costUsd` do mês (a mesma estimativa da aba Uso e do Analytics). Nada é zerado: o mês novo
+  simplesmente não soma o anterior.
+- **Proteção contra execuções simultâneas**: antes de chamar o modelo, a execução **reserva** uma estimativa
+  conservadora (`AiBudgetReservation`; ~3 caracteres por token na entrada, pelo maior preço entre entrada e escrita de
+  cache, mais a saída máxima `AI_MAX_OUTPUT_TOKENS`) sob uma trava por empresa. Gasto + reservas + estimativa acima do
+  limite → a IA não inicia a geração e transfere para a equipe (`AI_LIMIT_REACHED`, com a mensagem de transferência).
+  Ao gravar o custo real, a reserva sai na mesma transação.
+- **Falhas e cancelamentos**: erro da API sem consumo informado não soma nada (reserva liberada); resposta descartada
+  (troca de modo/pausa) soma o custo real (foi paga); execução que custa mais do que o previsto pode ultrapassar o
+  limite **no máximo pela diferença das execuções em andamento** — as seguintes ficam bloqueadas. Reserva de uma API
+  que caiu vence sozinha (10 min). Sem preço conhecido para o modelo e com limite definido, a IA não gera (falha
+  fechada).
+- **Origens separadas**: o bloqueio soma só a origem deste servidor (API oficial **ou** simulador). Consumo simulado
+  nunca vira custo real; registros sem origem (antes da Fase 6) não entram. O teste com o simulador funciona sem
+  chave real.
+- **Alertas**: a empresa (OWNER/ADMIN) vê "próximo do limite" (80%) e "limite atingido" (100%) **sem valores**; o
+  SUPERADMIN vê valores na aba IA, no dashboard (`GET /admin/alerts`) e em Configurações. A primeira vez que cada
+  patamar é atingido no mês fica registrada (`AiUsageAlert` + auditoria `ai.usage_threshold`) uma única vez.
+- Para a IA voltar no mesmo mês, o SUPERADMIN aumenta o limite; ela volta se estiver habilitada, não pausada, com a
+  empresa ativa e dentro do horário da IA.
+
+**Suspensão de empresas** (admin → empresa → **Suspender empresa**, com confirmação; `POST /admin/companies/:id/suspend`
+e `/reactivate` com `confirm: true`): suspensa = `status = PAUSED` + `suspendedAt` (o status anterior é guardado para a
+reativação). Na mesma transação: sessões dos usuários da empresa encerradas, tarefas da IA canceladas, mensagens ainda
+não enviadas marcadas como falha (`COMPANY_SUSPENDED`; não saem nem depois) e reservas liberadas. Toda rota da empresa
+responde 403 `COMPANY_SUSPENDED` (já era assim na Fase 1); o painel mostra a tela `/suspended` com os contatos do
+suporte. Recebimento, IA, distribuição, encerramento automático e envio conferem a suspensão **dentro das próprias
+transações** (linha da empresa travada para leitura), então nada iniciado antes escapa depois. O SUPERADMIN continua
+consultando e administrando. **Nada é apagado.**
+
+**Webhooks durante a suspensão**: o endpoint continua recebendo e validando a assinatura. A mensagem de uma empresa
+suspensa é **descartada** (nada de contato, conversa, mensagem, fila ou resposta); o evento fica `IGNORED` com
+`ignoredReason = COMPANY_SUSPENDED` e **nunca é reprocessado**. Status de entrega de mensagens antigas continuam sendo
+aplicados. **Limitação: mensagens enviadas pelos clientes durante a suspensão não são recuperadas.**
+
+**Reativação**: volta ao status anterior; os usuários ativos fazem login de novo; o WhatsApp volta a registrar
+mensagens; a fila volta a ser distribuída (no expediente). Nada é respondido retroativamente e o prazo de inatividade
+recomeça na reativação (`Company.reactivatedAt`), para conversas preservadas não serem encerradas em massa.
+
+**Contatos de suporte** (admin → **Configurações**): e-mail e WhatsApp validados, mostrados na tela de suspensão com
+links seguros (`mailto:` e `https://wa.me/<dígitos>`). `GET /api/support` exige login (qualquer usuário). Sem contato
+configurado, a tela orienta a procurar o responsável da empresa.
+
+**Estado básico das integrações** (admin → **Configurações**): WhatsApp e Anthropic com configurada/não configurada,
+ambiente **Oficial × Simulado**, contas por estado, empresas com a IA ligada/pausada e a última atividade observada
+(último webhook, último envio aceito, última resposta pela API oficial e pelo simulador). Credencial configurada não é
+apresentada como conexão validada, o simulador é sempre identificado e nenhum segredo aparece.
+
+**Confirmação e auditoria**: pausar a IA, alterar permissões, suspender e reativar exigem confirmação na tela (com o
+efeito explicado) **e** `confirm: true` na API. Alterações relevantes são auditadas com empresa, autor, horário, ação e
+grupo: `company.profile_updated`, `company.logo_updated/removed`, `company.suspended/reactivated`,
+`settings.permissions_changed` (concedidas e revogadas), `settings.schedules_updated`,
+`settings.exception_created/updated/deleted`, `settings.messages_updated`, `settings.service_updated`,
+`ai.paused/resumed`, `ai.limit_updated`, `ai.usage_threshold`, `platform.settings_updated`. Nunca senhas, tokens ou chaves.
+
 ## Pré-requisitos
 
 - Node.js **22.12+** (o NestJS 12 é ESM-only e depende de `require(esm)`)
@@ -460,6 +611,9 @@ Contatos e conversas fictícios (nomes terminam em "Exemplo", telefones `55 11 9
 | Outra Empresa (DEV) | 2 (um com o **mesmo telefone** da Mariana) | 1 com a IA, 1 não lida |
 
 O seed não recria conversas de contatos que já têm alguma; para voltar ao estado inicial, apague as tabelas `Message`, `Conversation` e `Contact` do banco de dev e rode `pnpm db:seed`.
+
+Fase 7: re-executar o seed **não altera empresas que já existem** (nome comercial, fuso e suspensão podem ter sido
+mudados pelo painel); só cria o que falta.
 
 IA (Fase 4): a Empresa Demo ganha a IA **ligada** (assistente "Sofia", tom amigável) e 6 informações fictícias na base
 (horário, endereço, preços, convênios; 1 inativa). Só é criado o que não existe: configurações e bases que você já
@@ -637,11 +791,78 @@ Suba as quatro janelas (`pnpm.cmd whatsapp:mock-graph`, `pnpm.cmd ai:mock-anthro
    **Execuções da IA** abre a aba Uso com os mesmos números.
 10. **Custos fora do painel da empresa**: volte como `owner@demo.local`: o Analytics da empresa e os arquivos exportados
     não mostram tokens nem custos.
-11. **Encerramento automático da IA**: como `owner@demo.local` → **Configurações** → "Encerramento automático" → coloque
+11. **Encerramento automático da IA**: como `owner@demo.local` → **Configurações** → aba **IA** → "Encerramento automático" → coloque
     `5` e salve. Simule um cliente (`pnpm.cmd whatsapp:simulate --from 5511966663333 --text "Qual o horário?"`) e espere
     5 minutos sem mandar mensagens: em até alguns segundos depois do prazo a conversa aparece como finalizada na Inbox e,
     no Analytics, em "encerrados por inatividade". Simule outra mensagem do mesmo número: a mesma conversa reabre com a
     IA. Volte o prazo para `240` ao terminar.
+
+## Testar a Fase 7 localmente — Windows / PowerShell
+
+Tudo com os simuladores (nenhuma chave real). Atualize o projeto e aplique a migration nova:
+
+```powershell
+git pull origin claude/new-session-fucivv
+pnpm.cmd install
+pnpm.cmd db:deploy
+pnpm.cmd db:seed
+```
+
+Suba as quatro janelas, como nas fases anteriores:
+
+```powershell
+pnpm.cmd whatsapp:mock-graph      # janela 1
+pnpm.cmd ai:mock-anthropic        # janela 2
+pnpm.cmd dev:api                  # janela 3
+pnpm.cmd dev:web                  # janela 4
+```
+
+Use `owner@demo.local` / `demo-owner-dev-123` (proprietário), `atendente@demo.local` / `demo-agent-dev-123`
+(funcionário, de preferência numa janela anônima) e `admin@arthurai.local` / `admin-dev-password-123` (Superadmin).
+Para simular clientes, abra uma quinta janela e use `pnpm.cmd whatsapp:simulate --from <número> --text "<texto>"`.
+
+1. **Seis abas**: como proprietário → **Configurações**. Abra Empresa, IA, Atendimento, Horários, Mensagens e Permissões.
+2. **Nome e logotipo**: aba Empresa → **Enviar imagem** (PNG/JPEG/WEBP até 512 KB) → o logo aparece no menu lateral.
+   Mude o nome comercial e salve. Teste um arquivo `.txt` renomeado para `.png`: aparece erro e o logo anterior fica.
+3. **Permissões**: aba Permissões → marque "Mensagens automáticas" para a Atendente Demo → **Salvar permissões** → leia a
+   confirmação → **Confirmar**. Na janela da atendente, a aba Mensagens fica editável e as outras só para consulta.
+   Desmarque e confirme: na próxima tentativa de salvar, a atendente recebe "sem permissão" (sem recarregar).
+4. **Três horários**: aba Horários. Cada agenda mostra "Aberto agora"/"Fechado agora". Mude só o horário da equipe e
+   salve: o geral e o da IA continuam iguais.
+5. **Feriados e datas especiais**: no calendário, os feriados nacionais do ano aparecem como referência ("Funcionamento
+   normal"). Clique em **Adicionar data especial** → data de **hoje** → descrição "Teste" → Horário geral **Fechado**,
+   IA e equipe **Segue a semana** → salvar.
+6. **Mensagens**: aba Mensagens → ligue **Boas-vindas** e **Atendimento fora do expediente** (personalize um texto) → salvar.
+7. **Envio das mensagens**: `pnpm.cmd whatsapp:simulate --from 5511977771111 --text "Olá"`. Na Inbox: boas-vindas e
+   aviso de fora do expediente ("Sistema"), nessa ordem, e depois a resposta da IA (simulada). Mande outra mensagem do
+   mesmo número: nenhuma das duas se repete. Remova a data especial de hoje ao terminar.
+8. **Espera excessiva**: aba Atendimento → tempo máximo de espera **1** minuto → salvar. Deixe todos como **Ausente**
+   (seletor no menu), simule `--from 5511977772222 --text "Quero falar com um atendente"` e espere 1 minuto: na Inbox,
+   filtro **Na fila**, a conversa fica destacada ("Espera excessiva"); o **Dashboard** mostra a contagem. Fique
+   **Disponível**: a conversa é atribuída e o destaque some.
+9. **Pausa da IA**: aba IA → **Pausar a IA** → leia o efeito → **Pausar agora**. O Dashboard mostra "A IA está pausada".
+10. **Encaminhamento durante a pausa**: simule `--from 5511977773333 --text "Oi"`: a conversa vai para a equipe (fila ou
+    funcionário disponível), sem resposta da IA. Volte em **Retomar a IA**: a próxima mensagem de um cliente novo é
+    respondida pela IA; a conversa que foi para a equipe continua com a equipe.
+11. **Limites mensais**: como Superadmin → **Configurações** → limite padrão `5` → salvar. Empresas → Empresa Demo →
+    aba **IA** → "Limite mensal de custo estimado" `0.01` → salvar. O cartão "Limite mensal da IA" mostra o gasto do
+    mês por origem (o simulador não é custo real).
+12. **Alertas de consumo**: simule mais uma mensagem de um cliente novo. Com o limite tão baixo, a IA não gera e
+    transfere para a equipe ("limite mensal de uso da IA atingido"); como proprietário, o Dashboard e a aba IA mostram
+    o aviso **sem valores**; como Superadmin, o Dashboard lista a empresa em "Alertas". Volte o limite para vazio
+    (sem limite) ou um valor maior: a IA volta a responder.
+13. **Suspensão**: como Superadmin → Empresas → Empresa Demo → **Suspender empresa** → leia o efeito → **Suspender agora**.
+14. **Tela de suspensão**: na janela do proprietário, clique em qualquer item: a sessão foi encerrada. Entre de novo:
+    aparece "Acesso temporariamente suspenso" com os contatos de suporte, sem menu. Simule uma mensagem
+    (`--from 5511977774444`): nada aparece em lugar nenhum (descartada).
+15. **Reativação**: como Superadmin → **Reativar empresa** → confirme. O proprietário entra normalmente; a mensagem do
+    passo 14 **não** aparece (não é recuperada); novas mensagens voltam a funcionar.
+16. **Contatos de suporte**: como Superadmin → **Configurações** → e-mail e WhatsApp de suporte → salvar. Repita a
+    suspensão para ver os links na tela (e reative).
+17. **Estado das integrações**: em **Configurações** do Superadmin, WhatsApp e Anthropic aparecem como **Simulado**, com
+    a última atividade observada e o aviso de que isso não valida a conexão real. Nenhum token ou chave aparece.
+18. **Analytics preservado**: **Analytics** da empresa e do Superadmin abrem como antes, com os atendimentos de hoje;
+    exporte PDF e Excel normalmente.
 
 ## Usar o Claude de verdade (chave da Anthropic)
 
@@ -685,15 +906,18 @@ Os testes e2e rodam contra um **PostgreSQL real** (`TEST_DATABASE_URL`): o setup
 A Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`, `test/ai-helpers.ts`):
 o SDK oficial da Anthropic é usado de verdade contra o servidor falso, então erros, retentativas e formato das
 respostas passam pelo mesmo código de produção. Os testes **não leem** `ANTHROPIC_*`/`AI_*` do seu `.env` e nunca chamam
-a Anthropic real. Estado atual: 17 arquivos, 286 testes (inclui corridas: distribuição simultânea, transferências
-simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso, reabertura, exportações e isolamento).
+a Anthropic real. Estado atual: 22 arquivos, 356 testes (inclui corridas: distribuição simultânea, transferências
+simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso, reabertura, exportações e isolamento;
+Fase 7: boas-vindas com webhooks simultâneos, reservas de orçamento concorrentes, geração em andamento durante a
+pausa, suspensão com eventos já na fila).
 
 ## Limitações conhecidas
 
 - **Rate limit em memória**: zera quando a API reinicia e não é compartilhado entre instâncias. Com mais de uma instância, precisa de store compartilhado (ex.: Redis — fora do escopo desta fase). Veja também `TRUST_PROXY` acima.
 - **Lockout por e-mail**: 5 falhas em 15 min bloqueiam aquele e-mail, inclusive para o dono legítimo (troca consciente de disponibilidade por proteção contra força bruta).
 - **Sessões expiradas** são removidas quando usadas; não há job de limpeza periódica.
-- **Sem edição de empresa/usuário** pelo painel (pausar, desativar, trocar role): nesta fase só pelo banco.
+- **Edição de empresa pelo painel**: o proprietário muda nome comercial, logotipo e fuso; os demais dados cadastrais
+  (CNPJ, endereço etc.) ainda só pelo banco. Suspender/reativar é do SUPERADMIN (Fase 7).
 - **Inbox por polling** (5 s): simples e confiável, mas gera uma requisição por aba aberta a cada ciclo; websocket fica para quando o volume justificar.
 - **Inbox mostra as 50 conversas mais recentes** do filtro (com aviso quando há mais); paginação da lista fica para depois.
 - **WhatsApp validado só com simulador**: a integração real depende das credenciais da Meta (ver "Conectar um número real").
@@ -701,12 +925,15 @@ simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso
 - **Modelos (templates)**: não há gerenciador. Fora da janela de 24h não é possível escrever ao cliente (nem a IA).
 - **IA validada só com simulador**: o Claude real nunca foi chamado neste projeto; a qualidade das respostas e o custo
   real precisam ser conferidos com uma chave de verdade e conversas reais antes de ligar para clientes.
-- **IA fora do horário não responde depois**: a mensagem fica para a equipe; não há "mensagem de ausência" automática.
+- **IA fora do horário não responde depois**: a mensagem fica para a equipe. O aviso automático de fora do expediente
+  (Fase 7) segue o horário **geral** do negócio, não o da IA.
 - **Base de conhecimento só com texto**: sem upload de PDF/arquivos. Bases maiores que `AI_KNOWLEDGE_MAX_CHARS` usam
   seleção por palavras em comum (palavra inteira, sem acento, singular aproximado; pode deixar de fora uma entrada
   relevante escrita com outras palavras, ex.: sinônimos).
 - **Mídia e IA**: áudio, imagem e documentos vão direto para humano (a IA não interpreta).
-- **Sem limite de gasto**: nada interrompe a IA por orçamento (decisão desta fase); só o limite anti-loop por conversa.
+- **Limite mensal da IA é sobre a ESTIMATIVA** (tabela de preços), não sobre a fatura. Pode ser ultrapassado no máximo
+  pela diferença entre o previsto e o real das execuções em andamento. Empresas habilitadas antes da Fase 7 ficam sem
+  limite até o SUPERADMIN definir um. Sem créditos extras nem cobrança.
 - **Custo é estimativa**: calculado pela tabela de preços configurada; a fatura oficial é a do console da Anthropic.
 - **Respostas geradas durante uma troca de modo** são pagas e descartadas (aparecem como "Descartada" no Uso).
 - **Equipe**: um usuário pertence a uma empresa (regra da Fase 1); desativar alguém desativa o login dele.
@@ -715,7 +942,8 @@ simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso
 - **Fila sem "pegar a próxima"**: funcionário não puxa conversa da fila manualmente; a distribuição é automática e
   OWNER/ADMIN podem atribuir pela transferência.
 - **Conversas pausadas** continuam contando na vaga do responsável e ficam na fila sem serem distribuídas até reativar.
-- **Mensagem de espera** fixa (não personalizável nesta fase) e enviada só quando a janela de 24h está aberta.
+- **Mensagens automáticas** só com a janela de 24h aberta (sem modelos aprovados). Se a boas-vindas falhar e for
+  reenviada depois pela retentativa, ela pode chegar depois do aviso de fora do expediente.
 - **Inatividade** é verificada a cada ciclo do worker (5 s por padrão): o encerramento pode acontecer alguns segundos
   depois do prazo.
 - **Envio duplicado em caso extremo**: se a API cair depois que a Meta aceitou a mensagem e antes de gravar o wamid, a retentativa pode reenviar (a Cloud API não oferece chave de idempotência).
@@ -732,11 +960,22 @@ simultâneas, encerramento × mensagem nova; Analytics com virada de dia no fuso
   critério é o modo, não se a IA respondeu); no Analytics aparecem como "sem resposta", encerradas.
 - **Analytics**: dados anteriores à Fase 6 só têm o ciclo atual de cada conversa (reaberturas antigas não foram
   registradas) e não entram nas médias de tempo; consumo antigo da IA aparece como "origem não verificada".
-- **Fuso da empresa** (`Company.timezone`) existe no banco, mas ainda não é editável pelo painel (padrão
-  `America/Sao_Paulo`); o Analytics do SUPERADMIN usa sempre `America/Sao_Paulo`.
+- **Fuso da empresa**: editável pelo proprietário (Fase 7). Mudá-lo muda também o início/fim dos dias nos relatórios
+  da empresa e o mês do limite da IA. O Analytics do SUPERADMIN usa sempre `America/Sao_Paulo`. Na migração da Fase 7,
+  empresas que tinham escolhido outro fuso para a IA passaram a usá-lo como fuso da empresa.
 - **Primeira resposta humana** usa o momento em que o funcionário enviou a mensagem (registro no sistema), mesmo que
   o WhatsApp depois a recuse.
 - **Exportação**: a "situação atual" reflete o momento da geração; os números históricos usam o instante de referência
   da tela (até 24 h). Limite de exportações em memória (como o rate limit de login).
 - **Custo da IA em USD**, sem conversão para reais e sem custos de infraestrutura/WhatsApp.
 - **CSP parcial** (`frame-ancestors`, `base-uri`, `form-action`, `object-src`); `script-src` com nonce fica para depois.
+- **Fase 7 — suspensão**: mensagens recebidas durante a suspensão são descartadas e **não** são recuperadas; uma
+  mensagem já em envio no instante exato da suspensão pode sair. Os usuários precisam entrar de novo após a reativação.
+- **Fase 7 — horários**: precisão de minuto; em mudanças de horário de verão, os horários seguem o relógio local.
+  Não há escalas individuais nem calendários por unidade. O expediente da equipe não impede transferências manuais.
+- **Fase 7 — feriados nacionais** seguem a lei federal atual (incluindo o 20 de novembro a partir de 2024); mudanças
+  futuras na lei exigem atualizar `brazilianNationalHolidays`.
+- **Fase 7 — logotipo no banco**: simples e consistente entre instâncias, mas aumenta o backup; sem redimensionamento.
+- **Fase 7 — IA desligada pelo SUPERADMIN**: conversas no modo IA continuam sem resposta (comportamento da Fase 4);
+  só a **pausa** da empresa encaminha para a equipe.
+- **Fase 7 — alertas** são visuais (painel e Inbox); não há notificação externa (e-mail, push).

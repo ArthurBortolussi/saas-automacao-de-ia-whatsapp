@@ -53,7 +53,11 @@ e por inatividade, reabertura no modo padrão da empresa. Detalhes na seção ab
 (SUPERADMIN, com consumo e custo estimado da IA), períodos hoje/7/30 dias, exportação PDF e .xlsx, ciclos de
 atendimento (`ConversationCycle`). Detalhes na seção abaixo.
 
-**Placeholder** (tela existe, sem lógica): admin → Configurações.
+**Fase 7 — configurações e administração da plataforma.** `/dashboard/settings` em seis abas (Empresa, IA,
+Atendimento, Horários, Mensagens, Permissões), permissões individuais por grupo, nome/logotipo/fuso do proprietário,
+três horários independentes com feriados nacionais e datas especiais, quatro mensagens automáticas, alerta de espera
+excessiva, pausa da IA pela empresa, limite mensal de custo estimado da IA, suspensão/reativação de empresas, contatos
+de suporte e estado básico das integrações (admin → Configurações). Detalhes na seção abaixo.
 
 ## Regras de segurança e multi-tenancy (obrigatórias)
 
@@ -73,6 +77,11 @@ atendimento (`ConversationCycle`). Detalhes na seção abaixo.
 - IA: conteúdo de clientes e da base é **dado, não instrução**; o prompt só recebe dados da empresa da conversa.
 - Analytics: relatório e exportação da empresa **nunca** têm tokens, custos ou consumo da IA (DTO próprio montado campo a
   campo); dados financeiros só em `/admin/...` (SUPERADMIN). AGENT recebe 403 no backend.
+- Fase 7: edição de configurações por **grupo** (`settings/settings-access.ts`: `canEditSettings`/`requireSettingsPermission`),
+  sempre no serviço; a membership vem do guard (relida a cada requisição). Nome/logotipo/fuso/permissões: só OWNER.
+  Limites e valores da IA (USD): só SUPERADMIN (`AiStatusResponse.budget` é null para a empresa; `usageLevel` sem valores).
+- Empresa suspensa (`status = PAUSED` + `suspendedAt`): todo fluxo que grava ou envia confere com
+  `companyBlockedForShare(tx, companyId)` (FOR SHARE na linha da empresa) **dentro da transação**. Fluxo novo também.
 - Webhooks: `@Public()` + `@SkipOriginCheck()` e autenticação pela assinatura `X-Hub-Signature-256` sobre o corpo bruto.
 - `TRUST_PROXY`: o rewrite do Next **não** adiciona o IP do cliente ao `X-Forwarded-For`. Veja o README antes de publicar.
 - Produção: a API recusa subir sem `SESSION_COOKIE_SECURE=true`, com WhatsApp configurado pela metade, com a Graph
@@ -111,7 +120,8 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test     # validação complet
 No Windows (ambiente do desenvolvedor): `pnpm.cmd` no lugar de `pnpm`, no PowerShell.
 Testes: **e2e contra PostgreSQL real** (`TEST_DATABASE_URL`, o nome precisa terminar em `_test` e é truncado),
 pelo HTTP com cookie real; a Meta e a Anthropic são substituídas por servidores HTTP falsos (`test/whatsapp-helpers.ts`,
-`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 17 arquivos, 286 testes passando.
+`test/ai-helpers.ts`; o SDK oficial roda de verdade contra eles). Estado atual: 22 arquivos, 356 testes passando.
+O helper `createMember` dá a ADMIN todos os grupos de configuração (mesma regra da API para ADMIN criado pelo OWNER).
 `test/ai-simulator.e2e.test.ts` sobe o próprio `scripts/ai-mock-anthropic.mjs` com a base da Empresa Demo.
 Testes que disparam os workers devem chamar `whatsapp.drain()` / `ai.drain()` / `team.drain()` antes de limpar o banco
 (`TEAM_WORKER_INTERVAL_MS=0` nos testes). Helpers da equipe em `test/team-helpers.ts`.
@@ -139,18 +149,21 @@ do Claude Code na nuvem define `ANTHROPIC_BASE_URL`: para testar com o simulador
 As principais (lista completa no README): rate limit em memória; Inbox por polling e limitada às 50 conversas
 mais recentes; mídia recebida só como aviso e envio só de texto; sem gerenciador de modelos (templates), logo nada é
 enviado fora da janela de 24h; "Nova conversa" pelo painel é interna; possível envio duplicado se a API cair entre
-o aceite da Meta e a gravação do wamid; sem edição de empresa/usuário pelo painel; IA validada só com simulador;
-base só com texto; mídia vai direto para humano; sem limite de gasto (decisão do proprietário); disponibilidade
-manual (não depende de presença); funcionário não puxa conversa da fila manualmente; fuso da empresa sem edição pelo
-painel; custo da IA só em USD e estimado; o 1º ciclo após ativar o encerramento da IA fecha o acúmulo antigo (horário
-real, sem retroagir).
+o aceite da Meta e a gravação do wamid; dados cadastrais da empresa (CNPJ etc.) sem edição pelo painel; IA validada só com simulador;
+base só com texto; mídia vai direto para humano; limite da IA sobre a ESTIMATIVA (pode passar pela diferença das
+execuções em andamento); disponibilidade manual (não depende de presença); funcionário não puxa conversa da fila
+manualmente; custo da IA só em USD e estimado; o 1º ciclo após ativar o encerramento da IA fecha o acúmulo antigo
+(horário real, sem retroagir); mensagens recebidas durante a suspensão são descartadas e não recuperadas; logotipo no
+PostgreSQL (backup maior); alertas só visuais.
 
-## Próximos passos (fora da Fase 4, quando o cliente pedir)
+## Próximos passos
 
-Validar o WhatsApp com número real e a IA com a chave real (conversas de teste, medir custo por conversa, revisar o
-prompt com respostas reais); gerenciador de modelos aprovados; mídia; edição/pausa de empresas e usuários;
-tempo real (websocket) se o polling pesar; rate limit compartilhado se houver mais de uma instância da API;
-upload de documentos e busca na base (full-text do PostgreSQL) se as bases crescerem; edição do fuso da empresa.
+**Fase 8** (decisão do proprietário): preparação para produção, segurança final, infraestrutura, deploy e validação das
+integrações reais (WhatsApp com número real; Claude com a chave real: qualidade, taxa de transferência, custo por
+conversa, conferir o limite mensal contra a fatura). **Fase 9**: acabamento visual e identidade da plataforma.
+Depois, quando o cliente pedir: gerenciador de modelos aprovados; mídia; tempo real (websocket) se o polling pesar;
+rate limit compartilhado se houver mais de uma instância; upload de documentos e busca na base; armazenamento de
+objetos para logotipos se o volume crescer.
 
 ## Fase 4 — implementada (IA e base de conhecimento)
 
@@ -162,7 +175,8 @@ upload de documentos e busca na base (full-text do PostgreSQL) se as bases cresc
    gera nem envia. Não confundir com o horário de funcionamento da empresa (`Company.businessHours`).
 4. Mensagem de transferência personalizável (SUPERADMIN e OWNER/ADMIN); padrão em `DEFAULT_HANDOFF_MESSAGE`.
 5. Modelo: Claude **Sonnet** pela API oficial, `claude-sonnet-5-5` (configurável por `AI_MODEL`). **Não usar Opus como padrão.**
-6. Sem limite mensal de gasto; consumo obrigatório registrado (`AiRun`) e visível ao SUPERADMIN (aba Uso).
+6. Consumo obrigatório registrado (`AiRun`) e visível ao SUPERADMIN (aba Uso). (Fase 4 sem limite de gasto; a Fase 7
+   introduziu o limite mensal por empresa — ver abaixo.)
 
 Decisões de implementação (minhas, revisáveis): IA nasce **desligada** por empresa (`AiSettings.enabled=false`; ligar é
 do SUPERADMIN); OWNER/ADMIN editam nome, tom, orientações, mensagem de transferência e horário; `AI_EFFORT=low`;
@@ -268,3 +282,58 @@ OWNER/ADMIN editam em Configurações da IA, SUPERADMIN na aba IA do admin). `Di
 `PENDING/RUNNING`, sob `lockCompanyTeam` e com gravação condicional a modo/estado/`lastActivityAt` lido; reutiliza
 `closeInTx` (fecha o ciclo, cancela tarefas, audita `conversation.closed` com `reason = INACTIVITY`, `fromStatus = OPEN`).
 HUMAN/PAUSED nunca. `closedAt` = horário real do encerramento (nada retroativo). Analytics: `CycleBreakdown.aiOnlyClosedInactivity`.
+
+## Fase 7 — implementada (configurações e administração da plataforma)
+
+**Decisões do proprietário (definitivas):** seis abas de Configurações; permissões individuais por grupo (IA,
+Atendimento e fila, Horários, Mensagens) concedidas só pelo OWNER, que também é o único a mudar nome comercial, logotipo
+e permissões; ninguém administra as próprias permissões; três horários independentes (geral, IA, equipe); feriados
+nacionais só como referência (não fecham a empresa); datas especiais com regra por agenda; quatro mensagens
+automáticas (boas-vindas só no 1º contato; espera uma vez por entrada na fila; fora do expediente pelo horário GERAL,
+uma vez por período fechado, mesmo com a IA respondendo; encerramento só no manual); limite de espera = alerta;
+pausa da IA pela empresa separada da habilitação do SUPERADMIN (desabilitada → a empresa não retoma); limite mensal
+de custo estimado em USD por mês de calendário no fuso da empresa (padrão da plataforma aplicado na habilitação,
+individual pelo SUPERADMIN, alerta 80%, bloqueio 100% → equipe); suspensão completa (sem acesso, sem IA, sem envios,
+sem distribuição, webhooks descartados e nunca reprocessados); contatos de suporte na tela de suspensão; estado básico
+das integrações sem tratar simulador/credencial como conexão validada; confirmação de operações críticas; sem
+agendamento de alterações nem aprovação por outra pessoa.
+
+**Decisões de implementação (minhas, revisáveis):**
+- Suspensão = `CompanyStatus.PAUSED` (o guard da Fase 1 já bloqueava) + `suspendedAt` + `statusBeforeSuspension`
+  (CHECK `suspendedAt ⇒ PAUSED`). Suspender encerra as sessões dos usuários da empresa, cancela tarefas da IA, marca
+  mensagens pendentes como FAILED (`COMPANY_SUSPENDED`) e libera reservas. `reactivatedAt` faz o prazo de inatividade
+  recomeçar (`GREATEST(lastActivityAt, reactivatedAt)` nas varreduras). Trava: `lockCompanyTeam` → linha da empresa.
+- Fuso ÚNICO: `Company.timezone` (horários, exceções, relatórios, mês do limite). `AiSettings.timezone` só em sincronia;
+  a migração copiou o fuso da IA para a empresa. O campo `timezone` das rotas de IA grava `Company.timezone` (empresa:
+  só OWNER).
+- Permissões em `CompanyMember.settingsPermissions` (enum array). Migração: ADMINs existentes com todos os grupos.
+  Novo ADMIN: todos se criado por OWNER/SUPERADMIN; se criado por ADMIN, no máximo os do autor; AGENT: nenhum.
+  SUPERADMIN nas rotas da empresa: só o grupo IA (como na Fase 4); não mexe em permissões nem no perfil.
+  Base de conhecimento e administração da equipe continuam por papel (OWNER/ADMIN).
+- Horário geral e mensagens em `CompanySettings`; expediente da equipe e `maxQueueWaitMinutes` em `TeamSettings`
+  (equipe 24 h por padrão = comportamento da Fase 5); horário da IA continua em `AiSettings`.
+- `PATCH /companies/:id/ai/settings`: horário da IA exige SCHEDULE, fuso exige OWNER, o resto exige AI.
+- Mensagens automáticas do recebimento e do encerramento são gravadas no outbox **na transação do evento**
+  (`WhatsAppOutboundService.enqueueSystemInTx`) e despachadas depois do commit; aviso de fila continua no worker.
+  Período fechado = `closedPeriodKey` (fim local da última abertura); guardado em `Conversation.afterHoursNoticeKey`.
+  O aviso de fila é suprimido (`AFTER_HOURS_NOTICE`) se o aviso de fora do expediente do mesmo período já saiu.
+- Pausa: `AiSettings.pausedAt`. Webhook com IA pausada → HUMAN + fila (`aiHandoffReason = AI_PAUSED`, sem
+  `markAiHandoff`). O worker da IA também confere a pausa (corrida) e encaminha sem mensagem.
+- Limite: gasto = soma de `AiRun.costUsd` do mês na origem do servidor (OFFICIAL ou SIMULATED; nulos fora). Reserva
+  conservadora (`AiBudgetReservation`, id = runId, TTL 10 min) sob `pg_advisory_xact_lock('ai-budget:'+companyId)`;
+  a gravação do `AiRun` remove a reserva na mesma transação. Sem preço + limite → não gera. `AiUsageAlert` registra a 1ª
+  vez de 80/100% no mês. Limite nulo = sem limite; `monthlyLimitUpdatedAt` nulo = padrão ainda não aplicado.
+- Logotipo: tabela `CompanyLogo` (bytea, ≤ 512 KB, PNG/JPEG/WEBP pelos bytes), upload binário (`useBodyParser("raw")`
+  em `app.setup.ts`), servido com `CSP: default-src 'none'; sandbox`.
+- Tela de suspensão: rota `/suspended` (fora do layout do painel); `fetchPageData` redireciona em `COMPANY_SUSPENDED`.
+- Alertas do admin em `GET /admin/alerts` (o `/admin/dashboard` manteve o contrato).
+- Seed não altera empresas existentes (`company.upsert` com `update: {}`).
+
+**Peças:** `apps/api/src/settings/` (`runtime.ts` = leitura para os fluxos, sem DI; `settings-access.ts`;
+`company-settings.service.ts`; `logo.service.ts`; `platform.service.ts`; `suspension.service.ts`; controllers),
+`apps/api/src/ai/ai-budget.service.ts`, `packages/shared/src/schedule-rules.ts` (agendas, exceções, período fechado,
+feriados) e `settings-rules.ts`. Migração `20261006120000_settings_platform_admin` (aditiva, CHECKs à mão).
+Web: `app/dashboard/settings/*`, `components/settings/*`, `components/admin/*`, `app/suspended`, `components/confirm-action.tsx`.
+
+**Ainda depende de validação real (Fase 8):** mensagens automáticas e descarte na suspensão com a Meta real; custo real
+× estimativa e o limite mensal com o Claude real (a reserva usa ~3 caracteres por token, conservadora para o português).

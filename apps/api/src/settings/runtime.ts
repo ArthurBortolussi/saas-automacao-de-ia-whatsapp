@@ -66,15 +66,14 @@ function override(mode: ScheduleException["businessMode"], start: string | null,
 }
 
 export async function loadCompanyRuntime(db: Db, companyId: string, now: Date = new Date()): Promise<CompanyRuntime> {
-  const [company, settings, team, ai] = await Promise.all([
-    db.company.findUniqueOrThrow({ where: { id: companyId }, select: { timezone: true } }),
-    db.companySettings.findUnique({ where: { companyId } }),
-    db.teamSettings.findUnique({ where: { companyId } }),
-    db.aiSettings.findUnique({
-      where: { companyId },
-      select: { alwaysOn: true, scheduleDays: true, scheduleStart: true, scheduleEnd: true, pausedAt: true },
-    }),
-  ]);
+  // Sequencial de propósito: dentro de uma transação, consultas paralelas disputariam a mesma conexão.
+  const company = await db.company.findUniqueOrThrow({ where: { id: companyId }, select: { timezone: true } });
+  const settings = await db.companySettings.findUnique({ where: { companyId } });
+  const team = await db.teamSettings.findUnique({ where: { companyId } });
+  const ai = await db.aiSettings.findUnique({
+    where: { companyId },
+    select: { alwaysOn: true, scheduleDays: true, scheduleStart: true, scheduleEnd: true, pausedAt: true },
+  });
   const timezone = safeTimeZone(company.timezone);
   const today = localDateTime(now, timezone).date;
   const exceptions = await db.scheduleException.findMany({
