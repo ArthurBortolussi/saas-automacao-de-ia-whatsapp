@@ -39,7 +39,7 @@ export function AiPauseControl({ companyId, status }: { companyId: string; statu
         ) : settings.enabled ? (
           <span className="font-medium">A IA está ativa para a empresa.</span>
         ) : (
-          <span className="text-muted-foreground">A IA está desligada pelo suporte do Arthur AI.</span>
+          <span className="text-muted-foreground">A IA está desligada pelo suporte da Vortrix AI.</span>
         )}
       </p>
       {error ? (
@@ -64,6 +64,7 @@ export function AiPauseControl({ companyId, status }: { companyId: string; statu
           }
           confirmLabel="Pausar agora"
           destructive
+          triggerVariant="destructive-outline"
           pending={pending}
           onConfirm={() => {
             run({ action: "PAUSE", confirm: true });

@@ -78,6 +78,12 @@ export function AppShell({ variant, me, context, children }: AppShellProps) {
 
   return (
     <div className="min-h-dvh">
+      <a
+        href="#conteudo"
+        className="sr-only z-50 rounded-md bg-card px-3 py-2 text-sm font-medium shadow-raised focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+      >
+        Pular para o conteúdo
+      </a>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block" aria-label="Menu principal">
         {sidebar}
       </aside>

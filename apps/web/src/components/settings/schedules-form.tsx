@@ -61,7 +61,7 @@ export function SchedulesForm({ data }: { data: CompanySettingsResponse }) {
             <div key={kind} className="space-y-4 rounded-md border p-4">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-medium">{SCHEDULE_KIND_LABEL[kind]}</p>
-                <Badge variant={open ? "default" : "secondary"}>{open ? "Aberto agora" : "Fechado agora"}</Badge>
+                <Badge variant={open ? "success" : "neutral"}>{open ? "Aberto agora" : "Fechado agora"}</Badge>
               </div>
               <p className="text-xs text-muted-foreground">{PURPOSE[kind]}</p>
               <label className="flex items-center gap-3 text-sm">

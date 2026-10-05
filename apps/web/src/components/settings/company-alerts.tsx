@@ -1,5 +1,6 @@
 import type { CompanyAlertsResponse } from "@arthur-ai/shared";
 import { Alert, AlertDescription, AlertTitle } from "@arthur-ai/ui/components/alert";
+import { AlertTriangle, Gauge, PauseCircle } from "lucide-react";
 import Link from "next/link";
 import { AI_USAGE_LEVEL_LABEL, formatMinutesShort } from "@/lib/format";
 
@@ -9,12 +10,13 @@ export function CompanyAlerts({ alerts }: { alerts: CompanyAlertsResponse }) {
   if (alerts.queue.overdue > 0) {
     items.push(
       <Alert key="queue" variant="destructive">
+        <AlertTriangle />
         <AlertTitle>
           {alerts.queue.overdue === 1 ? "1 conversa" : `${alerts.queue.overdue} conversas`} esperando há mais de {formatMinutesShort(alerts.queue.maxQueueWaitMinutes)}
         </AlertTitle>
         <AlertDescription>
           De {alerts.queue.waiting} na fila. Elas continuam na mesma posição e a distribuição segue automática.{" "}
-          <Link href="/dashboard/inbox?filter=queued" prefetch={false} className="underline underline-offset-4">
+          <Link href="/dashboard/inbox?filter=queued" prefetch={false} className="font-medium text-foreground underline underline-offset-4">
             Ver a fila
           </Link>
         </AlertDescription>
@@ -23,7 +25,8 @@ export function CompanyAlerts({ alerts }: { alerts: CompanyAlertsResponse }) {
   }
   if (alerts.aiUsage === "NEAR_LIMIT" || alerts.aiUsage === "LIMIT_REACHED") {
     items.push(
-      <Alert key="usage" variant={alerts.aiUsage === "LIMIT_REACHED" ? "destructive" : "default"}>
+      <Alert key="usage" variant={alerts.aiUsage === "LIMIT_REACHED" ? "destructive" : "warning"}>
+        <Gauge />
         <AlertTitle>{AI_USAGE_LEVEL_LABEL[alerts.aiUsage]}</AlertTitle>
         <AlertDescription>
           {alerts.aiUsage === "LIMIT_REACHED"
@@ -35,11 +38,12 @@ export function CompanyAlerts({ alerts }: { alerts: CompanyAlertsResponse }) {
   }
   if (alerts.aiPaused) {
     items.push(
-      <Alert key="paused">
+      <Alert key="paused" variant="info">
+        <PauseCircle />
         <AlertTitle>A IA está pausada</AlertTitle>
         <AlertDescription>
           Novas mensagens vão para a equipe.{" "}
-          <Link href="/dashboard/settings/ai" prefetch={false} className="underline underline-offset-4">
+          <Link href="/dashboard/settings/ai" prefetch={false} className="font-medium text-foreground underline underline-offset-4">
             Configurações da IA
           </Link>
         </AlertDescription>

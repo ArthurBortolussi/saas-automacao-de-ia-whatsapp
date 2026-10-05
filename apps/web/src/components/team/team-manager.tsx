@@ -14,10 +14,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arth
 import { Input } from "@arthur-ai/ui/components/input";
 import { NativeSelect, NativeSelectOption } from "@arthur-ai/ui/components/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@arthur-ai/ui/components/table";
-import { Plus } from "lucide-react";
+import { cn } from "@arthur-ai/ui/lib/utils";
+import { Clock, Plus, Timer, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useState, useTransition, type FormEvent } from "react";
+import { StatCard } from "@/components/analytics/stat-card";
+import { Avatar } from "@/components/avatar";
+import { ConfirmAction } from "@/components/confirm-action";
 import { AvailabilityBadge } from "@/components/contact-badges";
 import { Field } from "@/components/field";
 import { apiMutate } from "@/lib/api-client";
@@ -31,33 +35,65 @@ interface Props {
   inboxHrefPrefix: string | null;
 }
 
+type TeamView = "all" | "available" | "inactive";
+
+const VIEW_FILTERS: { value: TeamView; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "available", label: "Disponíveis" },
+  { value: "inactive", label: "Inativos" },
+];
+
 export function TeamManager({ companyId, team, inboxHrefPrefix }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const isOwner = team.me?.role === "OWNER";
   const roles = MEMBER_ROLES.filter((role) => isOwner || role !== "OWNER");
+  const [view, setView] = useState<TeamView>("all");
+  const activeCount = team.members.filter((member) => member.active).length;
+  const availableNow = team.members.filter((member) => member.active && member.canAttend && member.availability === "AVAILABLE").length;
+  const visible = team.members.filter((member) =>
+    view === "available" ? member.active && member.availability === "AVAILABLE" : view === "inactive" ? !member.active : true,
+  );
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="gap-1 px-5 py-4">
-          <p className="text-xs text-muted-foreground">Aguardando na fila</p>
-          <p className="text-xl font-semibold tabular-nums">{team.queue.waiting}</p>
-        </Card>
-        <Card className="gap-1 px-5 py-4">
-          <p className="text-xs text-muted-foreground">Disponíveis agora</p>
-          <p className="text-xl font-semibold tabular-nums">
-            {team.members.filter((member) => member.active && member.canAttend && member.availability === "AVAILABLE").length}
-          </p>
-        </Card>
-        <Card className="gap-1 px-5 py-4">
-          <p className="text-xs text-muted-foreground">Encerramento por inatividade</p>
-          <p className="text-xl font-semibold tabular-nums">{formatMinutes(team.settings.inactivityTimeoutMinutes)}</p>
-        </Card>
+        <StatCard
+          label="Aguardando na fila"
+          value={String(team.queue.waiting)}
+          hint={team.queue.waiting > 0 ? "Clientes esperando alguém da equipe" : "Ninguém esperando agora"}
+          icon={<Clock />}
+          attention={team.queue.waiting > 0}
+        />
+        <StatCard label="Disponíveis agora" value={String(availableNow)} hint={`De ${activeCount} ${activeCount === 1 ? "pessoa ativa" : "pessoas ativas"}`} icon={<UserCheck />} />
+        <StatCard
+          label="Encerramento por inatividade"
+          value={formatMinutes(team.settings.inactivityTimeoutMinutes)}
+          hint="Atendimentos humanos sem resposta do cliente"
+          icon={<Timer />}
+        />
       </div>
 
-      {team.canManage && !creating ? (
-        <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex w-fit rounded-lg border bg-card p-1 shadow-card" role="group" aria-label="Filtrar equipe">
+          {VIEW_FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={view === item.value}
+              onClick={() => {
+                setView(item.value);
+              }}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                view === item.value ? "bg-brand-soft font-medium text-brand-strong" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {team.canManage && !creating ? (
           <Button
             onClick={() => {
               setCreating(true);
@@ -65,8 +101,8 @@ export function TeamManager({ companyId, team, inboxHrefPrefix }: Props) {
           >
             <Plus /> Cadastrar funcionário
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {creating ? (
         <NewMemberForm
           companyId={companyId}
@@ -90,41 +126,65 @@ export function TeamManager({ companyId, team, inboxHrefPrefix }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {team.members.map((member) => (
+            {visible.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  Ninguém neste filtro.
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {visible.map((member) => (
               <Fragment key={member.userId}>
                 <TableRow>
                   <TableCell className="pl-5">
-                    <p className="font-medium">
-                      {member.name}
-                      {member.isMe ? <span className="font-normal text-muted-foreground"> (você)</span> : null}
-                    </p>
-                    {member.email ? <p className="text-xs text-muted-foreground">{member.email}</p> : null}
+                    <div className="flex items-center gap-3">
+                      <Avatar name={member.name} size="sm" className={member.active ? "" : "bg-muted text-muted-foreground"} />
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          {member.name}
+                          {member.isMe ? <span className="font-normal text-muted-foreground"> (você)</span> : null}
+                        </p>
+                        {member.email ? <p className="text-xs text-muted-foreground">{member.email}</p> : null}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>{MEMBER_ROLE_LABEL[member.role]}</TableCell>
                   <TableCell>
                     <AvailabilityBadge availability={member.availability} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {inboxHrefPrefix && member.activeConversations > 0 && (team.canManage || member.isMe) ? (
-                      <Link className="underline-offset-4 hover:underline" href={`${inboxHrefPrefix}${member.userId}`}>
-                        {member.activeConversations} / {member.maxConcurrent}
-                      </Link>
-                    ) : (
-                      `${member.activeConversations} / ${member.maxConcurrent}`
-                    )}
+                  <TableCell className="text-right">
+                    <div className="ml-auto flex w-24 flex-col items-end gap-1">
+                      <span className="text-sm tabular-nums">
+                        {inboxHrefPrefix && member.activeConversations > 0 && (team.canManage || member.isMe) ? (
+                          <Link className="font-medium text-brand-strong underline-offset-4 hover:underline" href={`${inboxHrefPrefix}${member.userId}`}>
+                            {member.activeConversations} / {member.maxConcurrent}
+                          </Link>
+                        ) : (
+                          `${member.activeConversations} / ${member.maxConcurrent}`
+                        )}
+                      </span>
+                      {/* Ocupação do limite individual (não é comparação entre pessoas). */}
+                      <span aria-hidden className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                        <span
+                          className={cn("block h-full rounded-full", member.activeConversations >= member.maxConcurrent ? "bg-warning" : "bg-brand")}
+                          style={{ width: `${Math.min(100, (member.activeConversations / Math.max(1, member.maxConcurrent)) * 100)}%` }}
+                        />
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      <Badge variant={member.active ? "outline" : "secondary"}>{member.active ? "Ativo" : "Inativo"}</Badge>
-                      {!member.canAttend ? <Badge variant="secondary">Não recebe atendimentos</Badge> : null}
-                      {member.mustChangePassword ? <Badge variant="secondary">Senha provisória</Badge> : null}
+                      <Badge variant={member.active ? "success" : "neutral"}>{member.active ? "Ativo" : "Inativo"}</Badge>
+                      {!member.canAttend ? <Badge variant="neutral">Não recebe atendimentos</Badge> : null}
+                      {member.mustChangePassword ? <Badge variant="warning">Senha provisória</Badge> : null}
                     </div>
                   </TableCell>
                   {team.canManage ? (
                     <TableCell className="pr-5 text-right">
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant={editing === member.userId ? "secondary" : "outline"}
+                        aria-expanded={editing === member.userId}
                         onClick={() => {
                           setEditing(editing === member.userId ? null : member.userId);
                         }}
@@ -136,7 +196,7 @@ export function TeamManager({ companyId, team, inboxHrefPrefix }: Props) {
                 </TableRow>
                 {editing === member.userId ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="bg-muted/30 px-5">
+                    <TableCell colSpan={6} className="bg-subtle px-5 whitespace-normal">
                       <EditMember
                         companyId={companyId}
                         member={member}
@@ -295,10 +355,7 @@ function EditMember({
   }
 
   function toggleActive() {
-    const confirmText = member.active
-      ? `Desativar ${member.name}? A pessoa perde o acesso e as conversas dela voltam para a fila.`
-      : `Reativar ${member.name}?`;
-    if (window.confirm(confirmText)) run("PATCH", path, { active: !member.active }, onDone);
+    run("PATCH", path, { active: !member.active }, onDone);
   }
 
   return (
@@ -326,12 +383,24 @@ function EditMember({
           Salvar
         </Button>
         {!member.isMe && canChangeRole ? (
-          <Button type="button" size="sm" variant={member.active ? "destructive" : "outline"} onClick={toggleActive} disabled={pending}>
-            {member.active ? "Desativar" : "Reativar"}
-          </Button>
+          <ConfirmAction
+            size="sm"
+            triggerVariant={member.active ? "destructive-outline" : "outline"}
+            label={member.active ? "Desativar" : "Reativar"}
+            title={member.active ? `Desativar ${member.name}?` : `Reativar ${member.name}?`}
+            effect={
+              member.active
+                ? "A pessoa perde o acesso imediatamente e as conversas dela voltam para a fila."
+                : "A pessoa volta a acessar o painel com a senha atual."
+            }
+            confirmLabel={member.active ? "Desativar" : "Reativar"}
+            destructive={member.active}
+            pending={pending}
+            onConfirm={toggleActive}
+          />
         ) : null}
       </div>
-      {message ? <p className="w-full text-sm text-destructive">{message}</p> : null}
+      {message ? <p className="w-full text-sm font-medium text-destructive">{message}</p> : null}
     </form>
   );
 }

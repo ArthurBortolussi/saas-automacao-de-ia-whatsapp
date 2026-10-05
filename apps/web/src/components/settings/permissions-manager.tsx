@@ -69,7 +69,7 @@ function MemberRow({ companyId, member }: { companyId: string; member: MemberPer
     <div className="space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{member.name}</span>
-        <Badge variant="secondary">{MEMBER_ROLE_LABEL[member.role]}</Badge>
+        <Badge variant="neutral">{MEMBER_ROLE_LABEL[member.role]}</Badge>
         {!member.active ? <Badge variant="outline">Inativo</Badge> : null}
         {member.isMe ? <span className="text-xs text-muted-foreground">(você)</span> : null}
       </div>

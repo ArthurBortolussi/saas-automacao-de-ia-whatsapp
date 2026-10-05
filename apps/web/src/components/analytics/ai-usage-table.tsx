@@ -53,7 +53,7 @@ export function UsageOriginNotice({ buckets }: { buckets: AiUsageBucket[] }) {
   const unverified = buckets.find((bucket) => bucket.source === "UNVERIFIED")?.runs ?? 0;
   if (simulated === 0 && unverified === 0) return null;
   return (
-    <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+    <p className="rounded-lg border border-warning/25 bg-warning-soft px-3 py-2 text-xs text-foreground/80">
       {simulated > 0 ? `${formatNumber(simulated)} execução(ões) foram feitas no simulador: os valores não são despesa real. ` : ""}
       {unverified > 0 ? `${formatNumber(unverified)} execução(ões) são anteriores ao registro de origem: tratadas como origem não verificada.` : ""}
     </p>

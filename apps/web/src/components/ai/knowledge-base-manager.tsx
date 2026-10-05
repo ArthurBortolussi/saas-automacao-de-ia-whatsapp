@@ -17,10 +17,11 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@a
 import { Input } from "@arthur-ai/ui/components/input";
 import { NativeSelect, NativeSelectOption } from "@arthur-ai/ui/components/native-select";
 import { Textarea } from "@arthur-ai/ui/components/textarea";
-import { BookOpen, Plus, Search } from "lucide-react";
+import { BookOpen, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
+import { ConfirmAction } from "@/components/confirm-action";
 import { Field } from "@/components/field";
 import { Pagination } from "@/components/pagination";
 import { apiMutate } from "@/lib/api-client";
@@ -45,7 +46,7 @@ export function KnowledgeBaseManager({ companyId, basePath, data, q, status }: P
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-card sm:flex-row sm:items-center sm:justify-between sm:p-4">
         <form className="flex flex-col gap-2 sm:flex-row" role="search" action={basePath}>
           <div className="relative sm:w-72">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -58,7 +59,7 @@ export function KnowledgeBaseManager({ companyId, basePath, data, q, status }: P
               <NativeSelectOption value="inactive">Inativas</NativeSelectOption>
             </NativeSelect>
           ) : null}
-          <Button type="submit" variant="outline">
+          <Button type="submit" variant="secondary">
             Buscar
           </Button>
           {filtered ? (
@@ -79,7 +80,9 @@ export function KnowledgeBaseManager({ companyId, basePath, data, q, status }: P
       </div>
 
       {!data.canEdit ? (
-        <p className="text-sm text-muted-foreground">Você pode consultar as informações ativas. Só o proprietário ou o administrador da empresa pode alterá-las.</p>
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+          Você pode consultar as informações ativas. Só o proprietário ou o administrador da empresa pode alterá-las.
+        </p>
       ) : null}
 
       {editing === "new" ? (
@@ -109,10 +112,10 @@ export function KnowledgeBaseManager({ companyId, basePath, data, q, status }: P
           </Empty>
         </Card>
       ) : (
-        <ul className="space-y-3">
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card shadow-card">
           {data.items.map((item) =>
             editing !== null && editing !== "new" && editing.id === item.id ? (
-              <li key={item.id}>
+              <li key={item.id} className="bg-subtle p-3">
                 <EntryForm
                   companyId={companyId}
                   entry={item}
@@ -144,6 +147,7 @@ export function KnowledgeBaseManager({ companyId, basePath, data, q, status }: P
 function EntryCard({ companyId, item, canEdit, onEdit }: { companyId: string; item: KnowledgeEntryItem; canEdit: boolean; onEdit: () => void }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [pending, startTransition] = useTransition();
   const path = `/companies/${companyId}/knowledge-base/${item.id}`;
 
@@ -160,41 +164,60 @@ function EntryCard({ companyId, item, canEdit, onEdit }: { companyId: string; it
   }
 
   return (
-    <Card className="gap-2 px-5 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="space-y-1">
-          <p className="font-medium">{item.title}</p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className="space-y-2 px-5 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={item.active ? "font-medium" : "font-medium text-muted-foreground"}>{item.title}</p>
+            <Badge variant={item.active ? "success" : "neutral"}>{item.active ? "Ativa" : "Inativa"}</Badge>
             {item.category ? <Badge variant="outline">{item.category}</Badge> : null}
-            <Badge variant={item.active ? "default" : "secondary"}>{item.active ? "Ativa" : "Inativa"}</Badge>
-            <span>Ordem {item.position}</span>
-            <span>Atualizada em {formatDateTime(item.updatedAt)}</span>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Ordem {item.position} · atualizada em {formatDateTime(item.updatedAt)}
+          </p>
         </div>
         {canEdit ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={onEdit} disabled={pending}>
-              Editar
+              <Pencil /> Editar
             </Button>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => apiMutate("PATCH", path, { active: !item.active }))}>
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => apiMutate("PATCH", path, { active: !item.active }))}>
               {item.active ? "Desativar" : "Ativar"}
             </Button>
-            <Button
+            <ConfirmAction
               size="sm"
-              variant="destructive"
-              disabled={pending}
-              onClick={() => {
-                if (window.confirm(`Excluir "${item.title}"? Esta ação não pode ser desfeita.`)) run(() => apiMutate("DELETE", path));
-              }}
-            >
-              Excluir
-            </Button>
+              triggerVariant="ghost"
+              triggerClassName="text-destructive hover:bg-destructive-soft hover:text-destructive"
+              label={
+                <>
+                  <Trash2 /> Excluir
+                </>
+              }
+              title={`Excluir "${item.title}"?`}
+              effect="A informação deixa de existir e a IA não poderá mais usá-la. Esta ação não pode ser desfeita."
+              confirmLabel="Excluir"
+              destructive
+              pending={pending}
+              onConfirm={() => run(() => apiMutate("DELETE", path))}
+            />
           </div>
         ) : null}
       </div>
-      <p className="text-sm whitespace-pre-wrap text-muted-foreground">{item.content}</p>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </Card>
+      <p className={expanded ? "text-sm whitespace-pre-wrap text-foreground/80" : "line-clamp-3 text-sm whitespace-pre-wrap text-foreground/80"}>{item.content}</p>
+      {item.content.length > 240 || item.content.split("\n").length > 3 ? (
+        <button
+          type="button"
+          className="text-xs font-medium text-brand-strong hover:underline"
+          aria-expanded={expanded}
+          onClick={() => {
+            setExpanded(!expanded);
+          }}
+        >
+          {expanded ? "Mostrar menos" : "Mostrar tudo"}
+        </button>
+      ) : null}
+      {error ? <p className="text-xs font-medium text-destructive">{error}</p> : null}
+    </div>
   );
 }
 
@@ -236,9 +259,9 @@ function EntryForm({ companyId, entry, onDone }: { companyId: string; entry: Kno
   }
 
   return (
-    <Card className="px-5 py-4">
+    <Card className="gap-0 px-5 py-4">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
-        <p className="font-medium">{entry ? "Editar informação" : "Nova informação"}</p>
+        <p className="font-semibold">{entry ? "Editar informação" : "Nova informação"}</p>
         {message ? (
           <Alert variant="destructive">
             <AlertDescription>{message}</AlertDescription>

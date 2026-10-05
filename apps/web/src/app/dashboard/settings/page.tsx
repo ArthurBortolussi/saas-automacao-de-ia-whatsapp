@@ -23,7 +23,7 @@ export default async function CompanySettingsPage() {
       </Card>
       <div>
         <h2 className="mb-1 text-base font-semibold">Dados cadastrais</h2>
-        <p className="mb-4 text-sm text-muted-foreground">Mantidos pela equipe Arthur AI. Para corrigir algum dado, fale com o suporte.</p>
+        <p className="mb-4 text-sm text-muted-foreground">Mantidos pela equipe Vortrix AI. Para corrigir algum dado, fale com o suporte.</p>
         <CompanyOverview company={data.company} />
       </div>
     </div>

@@ -173,7 +173,7 @@ export function CalendarManager({ companyId, calendar }: { companyId: string; ca
               <TableCell className="whitespace-nowrap">{formatPlainDate(row.date)}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-2">
-                  {row.holiday ? <Badge variant="secondary">Feriado nacional</Badge> : null}
+                  {row.holiday ? <Badge variant="info">Feriado nacional</Badge> : null}
                   <span>{row.exception?.label ?? row.holiday}</span>
                 </div>
               </TableCell>

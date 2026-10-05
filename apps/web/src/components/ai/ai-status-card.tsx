@@ -18,7 +18,7 @@ export function AiStatusCard({ status }: { status: AiStatusResponse }) {
       <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">Estado da IA</CardTitle>
-          <Badge variant={answering ? "default" : "secondary"}>{answering ? "Respondendo" : "Não está respondendo"}</Badge>
+          <Badge variant={answering ? "success" : "warning"}>{answering ? "Respondendo" : "Não está respondendo"}</Badge>
         </div>
       </CardHeader>
       {status.blockers.length > 0 ? (

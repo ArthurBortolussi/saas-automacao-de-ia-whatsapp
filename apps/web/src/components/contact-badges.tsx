@@ -20,7 +20,7 @@ function Dot({ tone, children, className }: { tone: string; children: string; cl
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap text-foreground",
+        "inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 text-xs font-medium whitespace-nowrap text-foreground",
         className,
       )}
     >

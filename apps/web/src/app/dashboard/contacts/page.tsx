@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Contact, Plus, Search } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { ContactStatusBadge } from "@/components/contact-badges";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
@@ -53,7 +54,8 @@ export default async function ContactsPage({ searchParams }: PageProps<"/dashboa
           </Button>
         }
       />
-      <form className="mb-4 flex flex-col gap-2 sm:flex-row" role="search">
+      <Card className="gap-0 overflow-hidden py-0">
+      <form className="flex flex-col gap-2 border-b bg-card p-3 sm:flex-row sm:items-center sm:p-4" role="search">
         <div className="relative sm:w-80">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input name="q" defaultValue={q} placeholder="Nome, telefone ou e-mail" aria-label="Buscar contatos" maxLength={100} className="pl-9" />
@@ -66,7 +68,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/dashboa
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        <Button type="submit" variant="outline">
+        <Button type="submit" variant="secondary">
           Buscar
         </Button>
         {filtered ? (
@@ -75,7 +77,6 @@ export default async function ContactsPage({ searchParams }: PageProps<"/dashboa
           </Button>
         ) : null}
       </form>
-      <Card className="gap-0 py-0">
         {data.items.length === 0 ? (
           <Empty className="py-14">
             <EmptyHeader>
@@ -110,10 +111,15 @@ export default async function ContactsPage({ searchParams }: PageProps<"/dashboa
               {data.items.map((contact) => (
                 <TableRow key={contact.id}>
                   <TableCell className="pl-5">
-                    <Link href={`/dashboard/contacts/${contact.id}`} className="font-medium hover:underline">
-                      {contact.name}
-                    </Link>
-                    {contact.email ? <p className="text-xs text-muted-foreground">{contact.email}</p> : null}
+                    <div className="flex items-center gap-3">
+                      <Avatar name={contact.name} size="sm" />
+                      <div className="min-w-0">
+                        <Link href={`/dashboard/contacts/${contact.id}`} prefetch={false} className="font-medium hover:text-brand-strong hover:underline">
+                          {contact.name}
+                        </Link>
+                        {contact.email ? <p className="truncate text-xs text-muted-foreground">{contact.email}</p> : null}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell className="tabular-nums text-muted-foreground">{formatPhoneNumber(contact.phone)}</TableCell>
                   <TableCell>

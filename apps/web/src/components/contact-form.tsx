@@ -12,7 +12,7 @@ import { Button } from "@arthur-ai/ui/components/button";
 import { Input } from "@arthur-ai/ui/components/input";
 import { NativeSelect, NativeSelectOption } from "@arthur-ai/ui/components/native-select";
 import { Textarea } from "@arthur-ai/ui/components/textarea";
-import { CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Field } from "@/components/field";
@@ -71,8 +71,8 @@ export function ContactForm({ companyId, contact }: ContactFormProps) {
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       {message ? (
-        <Alert variant={message.kind === "error" ? "destructive" : "default"}>
-          {message.kind === "success" ? <CheckCircle2 className="text-success" /> : null}
+        <Alert variant={message.kind === "error" ? "destructive" : "success"} role={message.kind === "error" ? "alert" : "status"}>
+          {message.kind === "success" ? <CheckCircle2 /> : <AlertCircle />}
           <AlertDescription>{message.text}</AlertDescription>
         </Alert>
       ) : null}
@@ -118,7 +118,7 @@ export function ContactForm({ companyId, contact }: ContactFormProps) {
       <Field id="notes" label="Observações" optional error={errors["notes"]}>
         <Textarea id="notes" name="notes" rows={4} maxLength={2000} defaultValue={contact?.notes ?? ""} aria-invalid={!!errors["notes"]} />
       </Field>
-      <div className="flex justify-end">
+      <div className="flex justify-end border-t pt-4">
         <Button type="submit" disabled={pending}>
           {pending ? "Salvando…" : contact ? "Salvar alterações" : "Cadastrar contato"}
         </Button>

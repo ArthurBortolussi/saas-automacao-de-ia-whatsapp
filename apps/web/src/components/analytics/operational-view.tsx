@@ -7,8 +7,8 @@ import {
   type DailyPoint,
   type TeamSummary,
 } from "@arthur-ai/shared";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import type { ReactNode } from "react";
+import { SectionCard } from "@/components/section-card";
 import { formatNumber } from "@/lib/format";
 import { DailyChart } from "./daily-chart";
 import { DistributionBar } from "./distribution-bar";
@@ -30,7 +30,7 @@ const dateTimeOf = (iso: string, timeZone: string) =>
 
 function Detail({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b py-2 last:border-b-0">
+    <div className="flex items-baseline justify-between gap-3 border-b py-2.5 first:pt-0 last:border-b-0 last:pb-0">
       <dt className="text-sm text-muted-foreground">
         {label}
         {hint ? <span className="block text-xs">{hint}</span> : null}
@@ -102,39 +102,22 @@ export function OperationalView({ data }: { data: OperationalData }) {
         />
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="rounded-lg border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
         &quot;Atendidos somente pela IA&quot; significa que não houve transferência nem participação da equipe — não garante que o problema do
         cliente foi resolvido. &quot;Encerrado por inatividade&quot; quer dizer apenas que o cliente parou de responder. Os números marcados com &quot;Agora&quot; mostram a situação atual, independentemente do período escolhido.
       </p>
 
       <div className="grid gap-6 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader>
-            <CardTitle className="text-base">Atendimentos por dia</CardTitle>
-            <CardDescription>Atendimentos iniciados em cada dia do período</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <SectionCard title="Atendimentos por dia" description="Atendimentos iniciados em cada dia do período" className="lg:col-span-3">
             <DailyChart daily={data.daily} />
-          </CardContent>
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">IA e equipe</CardTitle>
-            <CardDescription>Quem conduziu os atendimentos iniciados no período</CardDescription>
-          </CardHeader>
-          <CardContent>
+          </SectionCard>
+        <SectionCard title="IA e equipe" description="Quem conduziu os atendimentos iniciados no período" className="lg:col-span-2">
             <DistributionBar cycles={cycles} />
-          </CardContent>
-        </Card>
+          </SectionCard>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Resultados gerais da equipe</CardTitle>
-            <CardDescription>Números da equipe como um todo, sem comparação entre pessoas</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <SectionCard title="Resultados gerais da equipe" description="Números da equipe como um todo, sem comparação entre pessoas">
             <dl>
               <Detail label="Atendimentos humanos" value={formatNumber(team.humanCycles)} hint="Iniciados no período" />
               <Detail label="Atendimentos humanos encerrados" value={formatNumber(team.humanClosed)} hint="Encerrados no período" />
@@ -143,14 +126,8 @@ export function OperationalView({ data }: { data: OperationalData }) {
               <Detail label="Tempo de espera na fila (média)" value={formatDurationPt(team.queueWait.averageSeconds)} />
               <Detail label="Pedidos ainda sem resposta da equipe" value={formatNumber(team.withoutHumanReply)} />
             </dl>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Mais detalhes</CardTitle>
-            <CardDescription>Transferências, fila e encerramentos</CardDescription>
-          </CardHeader>
-          <CardContent>
+          </SectionCard>
+        <SectionCard title="Mais detalhes" description="Transferências, fila e encerramentos">
             <dl>
               <Detail label="Transferidos pela IA para a equipe" value={formatNumber(cycles.aiTransferred)} hint="Atendimentos iniciados no período" />
               <Detail label="Aguardando atendimento humano" value={formatNumber(cycles.awaitingHuman)} hint="Iniciados no período e ainda sem a equipe" />
@@ -159,8 +136,7 @@ export function OperationalView({ data }: { data: OperationalData }) {
               <Detail label="Finalizados por inatividade" value={formatNumber(closed.inactivity)} />
               <Detail label="Pausados ou sem responsável agora" value={formatNumber(current.other)} />
             </dl>
-          </CardContent>
-        </Card>
+          </SectionCard>
       </div>
 
       {cycles.reconstructed > 0 ? (
