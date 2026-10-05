@@ -25,7 +25,7 @@ export function AiLimitAlerts({ rows }: { rows: AiLimitAlertRow[] }) {
               </Link>
             </TableCell>
             <TableCell>
-              <Badge variant={row.level === "LIMIT_REACHED" ? "destructive" : "secondary"}>{AI_USAGE_LEVEL_LABEL[row.level]}</Badge>
+              <Badge variant={row.level === "LIMIT_REACHED" ? "destructive" : "warning"}>{AI_USAGE_LEVEL_LABEL[row.level]}</Badge>
               {row.source === "SIMULATED" ? <span className="ml-2 text-xs text-muted-foreground">(simulado)</span> : null}
             </TableCell>
             <TableCell className="text-right tabular-nums">

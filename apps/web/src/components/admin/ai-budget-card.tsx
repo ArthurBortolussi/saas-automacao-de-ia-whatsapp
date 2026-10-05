@@ -12,7 +12,7 @@ export function AiBudgetCard({ budget }: { budget: AiBudgetView }) {
       <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">Limite mensal da IA</CardTitle>
-          <Badge variant={alert ? "destructive" : "secondary"}>{AI_USAGE_LEVEL_LABEL[budget.level]}</Badge>
+          <Badge variant={alert ? "destructive" : "neutral"}>{AI_USAGE_LEVEL_LABEL[budget.level]}</Badge>
         </div>
       </CardHeader>
       <DetailList

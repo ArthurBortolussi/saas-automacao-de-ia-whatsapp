@@ -1,10 +1,12 @@
 import type { AdminUserItem, Paginated } from "@arthur-ai/shared";
+import { Badge } from "@arthur-ai/ui/components/badge";
 import { Card } from "@arthur-ai/ui/components/card";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@arthur-ai/ui/components/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@arthur-ai/ui/components/table";
 import { Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
 import { fetchPageData } from "@/lib/api-server";
@@ -48,13 +50,20 @@ export default async function AdminUsersPage({ searchParams }: PageProps<"/admin
               {data.items.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="pl-5">
-                    <p className="font-medium">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={user.name} size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-medium">{user.name}</p>
+                        <p className="text-xs text-muted-foreground">{user.email}</p>
+                      </div>
+                    </div>
                   </TableCell>
-                  <TableCell>{GLOBAL_ROLE_LABEL[user.globalRole]}</TableCell>
+                  <TableCell>
+                    {user.globalRole === "SUPERADMIN" ? <Badge variant="brand">{GLOBAL_ROLE_LABEL[user.globalRole]}</Badge> : GLOBAL_ROLE_LABEL[user.globalRole]}
+                  </TableCell>
                   <TableCell>
                     {user.company ? (
-                      <Link href={`/admin/companies/${user.company.id}/users`} className="hover:underline">
+                      <Link href={`/admin/companies/${user.company.id}/users`} className="hover:text-brand-strong hover:underline">
                         {user.company.name}
                         <span className="text-muted-foreground"> · {MEMBER_ROLE_LABEL[user.company.role]}</span>
                       </Link>
@@ -62,7 +71,9 @@ export default async function AdminUsersPage({ searchParams }: PageProps<"/admin
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{USER_STATUS_LABEL[user.status]}</TableCell>
+                  <TableCell>
+                    <Badge variant={user.status === "ACTIVE" ? "success" : "neutral"}>{USER_STATUS_LABEL[user.status]}</Badge>
+                  </TableCell>
                   <TableCell className="pr-5 text-muted-foreground">{formatDate(user.createdAt)}</TableCell>
                 </TableRow>
               ))}

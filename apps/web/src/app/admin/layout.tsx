@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const me = await requireUser();
   if (me.user.globalRole !== "SUPERADMIN") redirect("/dashboard");
   return (
-    <AppShell variant="admin" me={me} context="Administração da plataforma">
+    <AppShell variant="admin" me={me} context="Plataforma">
       {children}
     </AppShell>
   );

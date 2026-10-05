@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Building2 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { CompanyStatusBadge } from "@/components/status-badge";
 import { getAdminCompany } from "@/lib/admin-data";
 import { formatDate } from "@/lib/format";
@@ -11,24 +12,22 @@ export default async function CompanyLayout({ children, params }: LayoutProps<"/
 
   return (
     <>
-      <Link href="/admin/companies" className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground">
-        ← Empresas
-      </Link>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
-            <CompanyStatusBadge status={company.status} />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {company.industry} · criada em {formatDate(company.createdAt)}
-            {company.suspendedAt ? ` · suspensa em ${formatDate(company.suspendedAt)}` : ""}
-          </p>
-        </div>
-        <CompanyStatusActions companyId={company.id} companyName={company.name} status={company.status} />
-      </div>
+      <PageHeader
+        back={{ href: "/admin/companies", label: "Empresas" }}
+        title={company.name}
+        badges={<CompanyStatusBadge status={company.status} />}
+        description={`${company.industry} · criada em ${formatDate(company.createdAt)}${company.suspendedAt ? ` · suspensa em ${formatDate(company.suspendedAt)}` : ""}`}
+        actions={<CompanyStatusActions companyId={company.id} companyName={company.name} status={company.status} />}
+      />
+      {/* Deixa explícito que tudo abaixo são dados DESTA empresa (e não da plataforma inteira). */}
+      <p className="mb-4 flex items-center gap-2 rounded-lg border border-info/20 bg-info-soft px-3 py-2 text-xs text-foreground/80">
+        <Building2 className="size-3.5 shrink-0 text-info" aria-hidden />
+        <span>
+          Você está vendo os dados da empresa <span className="font-medium text-foreground">{company.name}</span>.
+        </span>
+      </p>
       <CompanyTabs companyId={company.id} />
-      <div className="pt-6">{children}</div>
+      <div>{children}</div>
     </>
   );
 }

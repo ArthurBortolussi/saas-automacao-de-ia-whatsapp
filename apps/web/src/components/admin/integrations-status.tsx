@@ -22,7 +22,7 @@ export function IntegrationsStatusCards({ status }: { status: IntegrationsStatus
         <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-base">WhatsApp Cloud API</CardTitle>
-            <Badge variant={whatsapp.environment === "OFFICIAL" ? "default" : "secondary"}>{ENVIRONMENT_LABEL[whatsapp.environment]}</Badge>
+            <Badge variant={whatsapp.environment === "OFFICIAL" ? "info" : "neutral"}>{ENVIRONMENT_LABEL[whatsapp.environment]}</Badge>
           </div>
         </CardHeader>
         <DetailList
@@ -46,7 +46,7 @@ export function IntegrationsStatusCards({ status }: { status: IntegrationsStatus
         <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-base">Anthropic (IA)</CardTitle>
-            <Badge variant={anthropic.environment === "OFFICIAL" ? "default" : "secondary"}>{ENVIRONMENT_LABEL[anthropic.environment]}</Badge>
+            <Badge variant={anthropic.environment === "OFFICIAL" ? "info" : "neutral"}>{ENVIRONMENT_LABEL[anthropic.environment]}</Badge>
           </div>
         </CardHeader>
         <DetailList

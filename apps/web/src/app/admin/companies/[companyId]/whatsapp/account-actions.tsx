@@ -4,6 +4,7 @@ import type { WhatsAppAccountAction, WhatsAppAccountStatus } from "@arthur-ai/sh
 import { Button } from "@arthur-ai/ui/components/button";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { ConfirmAction } from "@/components/confirm-action";
 import { apiMutate } from "@/lib/api-client";
 
 const DONE: Record<WhatsAppAccountAction, string> = {
@@ -18,7 +19,6 @@ export function WhatsAppAccountActions({ companyId, status, disabled }: { compan
   const [pending, startTransition] = useTransition();
 
   function run(action: WhatsAppAccountAction) {
-    if (action === "DISABLE" && !window.confirm("Desativar? Mensagens deixam de ser recebidas e enviadas por este número.")) return;
     setFeedback(null);
     startTransition(async () => {
       const result = await apiMutate("POST", `/admin/companies/${companyId}/whatsapp/actions`, { action });
@@ -39,14 +39,23 @@ export function WhatsAppAccountActions({ companyId, status, disabled }: { compan
             <Button size="sm" onClick={() => run("TEST")} disabled={pending || disabled}>
               {pending ? "Aguarde…" : "Testar conexão"}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => run("DISABLE")} disabled={pending || disabled}>
-              Desativar
-            </Button>
+            <ConfirmAction
+              size="sm"
+              triggerVariant="destructive-outline"
+              label="Desativar"
+              title="Desativar a integração do WhatsApp?"
+              effect="Mensagens deixam de ser recebidas e enviadas por este número até a integração ser reativada."
+              confirmLabel="Desativar"
+              destructive
+              disabled={pending || disabled}
+              pending={pending}
+              onConfirm={() => run("DISABLE")}
+            />
           </>
         )}
       </div>
       {feedback ? (
-        <p role="status" className={feedback.kind === "error" ? "text-xs text-destructive" : "text-xs text-success"}>
+        <p role="status" className={feedback.kind === "error" ? "text-xs font-medium text-destructive" : "text-xs font-medium text-success"}>
           {feedback.text}
         </p>
       ) : null}
