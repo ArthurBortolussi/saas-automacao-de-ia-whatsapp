@@ -514,10 +514,12 @@ deles, nunca hexadecimais soltos):
 
 | Token | Valor | Uso |
 |---|---|---|
-| `--vx-midnight` → `--sidebar` | `#0B1220` | Sidebar, barra do mobile, painel do login, sobreposição de modais |
+| `--vx-midnight` → `--sidebar` | `#0A0F1E` | Sidebar, barra do mobile, painel do login, sobreposição de modais |
 | `--vx-indigo-strong` → `--primary` | `#4F46E5` | Botão principal, aba ativa, links de destaque, gráfico "IA" |
 | `--vx-indigo` → `--brand`/`--ring` | `#6366F1` | Destaques, foco, indicador do menu ativo |
-| `--vx-lavender` → `--brand-soft` | `#E9ECFF` | Fundos de ícones, selos de marca, balão da IA |
+| `--vx-violet` → `--brand-violet` | `#8B5CF6` | Cor secundária da marca ("AI" do wordmark no escuro, detalhes do login) |
+| `--vx-lavender` | `#E9D5FF` | Lavender do guia de marca (símbolo e login) |
+| `--vx-lavender-soft` → `--brand-soft` | `#F1EBFF` | Fundos de ícones, selos de marca, balão da IA (tom claro do lavender; texto índigo ≥ 4,5:1) |
 | `--vx-mist` → `--background` | `#F4F6FB` | Fundo do conteúdo |
 | `--card` | `#FFFFFF` | Cards, tabelas, formulários |
 | `--success` / `--warning` / `--destructive` / `--info` | `#15803D` / `#B45309` / `#DC2626` / `#4F46E5` | Estados (texto com contraste ≥ 4,5:1); cada um tem uma versão `-soft` para fundos |
@@ -546,9 +548,12 @@ de fontes no build). Hierarquia: título de página 24 px (20 no mobile), títul
 - A partir de `lg` (1024 px) a sidebar é fixa; abaixo disso vira drawer. A Inbox mostra lista + conversa a partir de
   `md` e o painel do contato a partir de `xl`; no celular, uma coluna por vez.
 
-**Logo:** o monograma V + X atual é **provisório** (SVG inline em `apps/web/src/components/logo.tsx`). Arquivos para
-substituição em `apps/web/public/brand/` (símbolo, horizontal claro/escuro) e `apps/web/src/app/icon.svg` (favicon);
-veja `apps/web/public/brand/README.md`.
+**Logo:** símbolo V + X do guia de marca (duas faixas com degradê índigo → violeta e dobra lavender), redesenhado em SVG
+como **aproximação** da referência raster (`apps/web/src/components/logo.tsx`). Validado em fundo claro, midnight,
+sidebar (24–28 px), mobile e favicon 16/32/64. Arquivos para substituição pelo vetor definitivo em
+`apps/web/public/brand/` (símbolo, ícone de app, horizontal claro/escuro) e `apps/web/src/app/icon.svg`; veja
+`apps/web/public/brand/README.md`. **Degradê só no símbolo e na composição do login** (`brand-backdrop.tsx`); botões,
+cards, menus e estados são sólidos. Sem slogan por enquanto.
 
 ## Pré-requisitos
 
@@ -980,7 +985,8 @@ pausa, suspensão com eventos já na fila).
 ## Limitações conhecidas
 
 **Visuais (Fase 8):**
-- **Logo provisório**: monograma V + X simples, sem a arte definitiva; os SVGs horizontais usam texto (dependem da fonte instalada).
+- **Logo aproximado**: símbolo redesenhado à mão a partir de imagem raster (não é o vetor do designer); o wordmark usa
+  Geist, não a fonte do guia de marca, e os SVGs horizontais usam texto (dependem da fonte instalada).
 - **Sem dark mode** (só o tema claro com sidebar escura) e **sem toasts**: o retorno das ações aparece junto do formulário/botão.
 - A Inbox identifica as mensagens da IA como "IA", sem o nome configurado do assistente (ex.: Sofia): o nome não vem na
   API de mensagens e buscá-lo a cada atualização da Inbox (5 s) teria custo.

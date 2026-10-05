@@ -1,7 +1,7 @@
 import type { MeResponse } from "@arthur-ai/shared";
 import type { ReactNode } from "react";
 import { MEMBER_ROLE_LABEL } from "@/lib/format";
-import { Logo } from "./logo";
+import { Logo, VortrixMark } from "./logo";
 import { LogoutButton } from "./logout-button";
 import { MobileNav } from "./mobile-nav";
 import { CompanyLogo } from "./settings/company-logo";
@@ -39,11 +39,15 @@ export function AppShell({ variant, me, context, children }: AppShellProps) {
 
       {/* Contexto: qual empresa (ou a plataforma) está em uso. */}
       <div className="mx-3 mb-4 flex items-center gap-3 rounded-lg border border-sidebar-border bg-sidebar-surface px-3 py-2.5">
-        {membership?.company.logoVersion ? (
+        {variant === "admin" ? (
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md bg-sidebar-accent">
+            <VortrixMark className="size-5" />
+          </span>
+        ) : membership?.company.logoVersion ? (
           <CompanyLogo companyId={membership.company.id} version={membership.company.logoVersion} name={context} size={32} />
         ) : (
           <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md bg-sidebar-accent text-xs font-semibold text-white">
-            {variant === "admin" ? "VX" : initialsOf(context)}
+            {initialsOf(context)}
           </span>
         )}
         <div className="min-w-0">

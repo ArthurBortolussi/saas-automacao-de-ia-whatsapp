@@ -350,13 +350,15 @@ Web: `app/dashboard/settings/*`, `components/settings/*`, `components/admin/*`, 
 ## Fase 8 — implementada (rebranding, design system e redesign)
 
 **Decisões do proprietário (definitivas):** marca Vortrix AI; direção "Premium Híbrido" (conteúdo claro, sidebar escura
-midnight, índigo/violeta, cards limpos, sem neon/glass/gradientes pesados); monograma V + X (provisório até existir o
-SVG definitivo); só o tema principal (sem dark mode); nada de regra de negócio nova nesta fase.
+midnight, índigo/violeta, cards limpos, sem neon/glass/gradientes pesados); guia de marca recebido como imagem (paleta
+midnight `#0A0F1E`, indigo `#4F46E5`, deep violet `#8B5CF6`, lavender `#E9D5FF`); símbolo V + X redesenhado em SVG como
+aproximação até chegar o vetor definitivo; **degradê só no símbolo e na composição do login** (botões, cards, menus e
+estados sólidos); sem slogan; nenhuma funcionalidade sugerida pelo mockup (SSO, "AI Agents" etc.); só o tema principal.
 
 **Regras para qualquer tela nova:**
 - Cores só por tokens (`packages/ui/src/styles/globals.css`): `bg-primary`, `text-muted-foreground`, `bg-success-soft`,
   `text-warning`, `bg-sidebar`, `var(--chart-1)`... **Nunca** hexadecimal ou cor da paleta do Tailwind (`bg-red-500`; `text-white` é permitido) em
-  componente. Cor nova entra primeiro como token. Exceções: SVGs de `public/brand/` e `app/icon.svg` (assets) e
+  componente. Cor nova entra primeiro como token. Exceções: as cores do símbolo em `logo.tsx`, SVGs de `public/brand/` e `app/icon.svg` (assets) e
   `themeColor` no `layout.tsx` (exige literal); a cor do PDF (`report-pdf.ts`) espelha `--primary`.
 - Estrutura de página: `PageHeader` (título, descrição, ação principal, `back`, `badges`) → conteúdo em `SectionCard`/
   `Card`; indicadores com `StatCard`; abas-rota com `NavTabs`; vazio com `Empty`; carregamento com `Skeleton`/
@@ -376,6 +378,9 @@ SVG definitivo); só o tema principal (sem dark mode); nada de regra de negócio
 page-skeleton,confirm-action}.tsx`, `analytics/stat-card.tsx`; `app/dashboard/inbox/inbox-frame.tsx`; `public/brand/`.
 O Dashboard da empresa mostra os **totais dos filtros da Inbox** (`?filter=X&pageSize=1`), sem indicador novo.
 
-**Limitações visuais conhecidas:** logo provisório; sem toasts (retorno junto do formulário); mensagens da IA aparecem
+**Peças da marca:** `logo.tsx` (`VortrixMark` com IDs de degradê únicos por instância — necessário porque a sidebar do
+desktop fica com `display:none` no mobile; `Logo`), `brand-backdrop.tsx` (login), `public/brand/*.svg`, `app/icon.svg`.
+
+**Limitações visuais conhecidas:** símbolo aproximado (não é o vetor do designer) e wordmark em Geist; sem toasts (retorno junto do formulário); mensagens da IA aparecem
 como "IA" (o nome do assistente não vem na API de mensagens); tabelas largas rolam na horizontal no celular; formulários
 das Configurações ajustados por tokens, não redesenhados campo a campo.

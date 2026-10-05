@@ -1,36 +1,74 @@
 import { cn } from "@arthur-ai/ui/lib/utils";
+import { useId } from "react";
 
 /**
- * Identidade Vortrix AI. Símbolo provisório (monograma geométrico V + X) desenhado em SVG inline com os tokens da
- * marca. Para trocar pelo símbolo definitivo, substitua o conteúdo de <VortrixMark> (e os arquivos em
- * public/brand/ + app/icon.svg). O restante da interface só usa <Logo> e <VortrixMark>.
+ * Símbolo da Vortrix AI: duas faixas diagonais que formam o monograma V + X, com degradê índigo → violeta e a dobra
+ * clara no cruzamento. É uma APROXIMAÇÃO em SVG do guia de marca (a referência recebida é raster). Ao receber o vetor
+ * definitivo, troque as formas e paradas abaixo e os arquivos de public/brand/ + app/icon.svg (mesma geometria 64×64).
+ * As cores do símbolo são parte do asset (como os SVGs de public/brand/), por isso ficam aqui e não em tokens.
  */
+const MARK = {
+  viewBox: "0 0 64 64",
+  back: "M2 7h17L62 57H45Z",
+  front: "M43 7h17L37 57H20Z",
+  backStops: [
+    ["0", "#4338CA"],
+    ["0.55", "#6656EE"],
+    ["1", "#8B5CF6"],
+  ],
+  frontStops: [
+    ["0", "#8B5CF6"],
+    ["0.44", "#C7B4FB"],
+    ["0.6", "#7A68F2"],
+    ["1", "#4F46E5"],
+  ],
+} as const;
+
 export function VortrixMark({ className, title }: { className?: string; title?: string }) {
+  // IDs únicos por instância: o mesmo símbolo aparece na sidebar oculta e na barra do mobile, e um degradê definido
+  // dentro de um SVG com display:none não pinta as outras cópias.
+  const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   return (
     <svg
-      viewBox="0 0 32 32"
+      viewBox={MARK.viewBox}
       className={cn("size-7 shrink-0", className)}
       role={title ? "img" : undefined}
       aria-hidden={title ? undefined : true}
       aria-label={title}
     >
-      <rect width="32" height="32" rx="8" fill="var(--brand-strong)" />
-      <path d="M8.5 9 16 23.5 23.5 9" fill="none" stroke="var(--vx-white)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M11.5 13.5 22.5 23.5" fill="none" stroke="var(--vx-lavender)" strokeOpacity="0.75" strokeWidth="2.2" strokeLinecap="round" />
+      <defs>
+        <linearGradient id={`${id}-back`} x1="2" y1="7" x2="62" y2="57" gradientUnits="userSpaceOnUse">
+          {MARK.backStops.map(([offset, color]) => (
+            <stop key={offset} offset={offset} stopColor={color} />
+          ))}
+        </linearGradient>
+        <linearGradient id={`${id}-front`} x1="60" y1="7" x2="22" y2="57" gradientUnits="userSpaceOnUse">
+          {MARK.frontStops.map(([offset, color]) => (
+            <stop key={offset} offset={offset} stopColor={color} />
+          ))}
+        </linearGradient>
+        <clipPath id={`${id}-clip`}>
+          <path d={MARK.back} />
+        </clipPath>
+      </defs>
+      <path d={MARK.back} fill={`url(#${id}-back)`} />
+      {/* Sombra discreta da faixa da frente sobre a de trás: dá a sensação de dobra/sobreposição da referência. */}
+      <path d={MARK.front} transform="translate(2.2 0)" fill="#1E1B4B" fillOpacity="0.28" clipPath={`url(#${id}-clip)`} />
+      <path d={MARK.front} fill={`url(#${id}-front)`} />
     </svg>
   );
 }
 
-/** Símbolo + wordmark. `tone="dark"` para fundos escuros (sidebar), `light` para fundos claros. */
+/** Símbolo + wordmark. `tone="dark"` para fundos midnight (sidebar, barra do mobile, login), `light` para fundos claros. */
 export function Logo({ className, tone = "light", compact = false }: { className?: string; tone?: "light" | "dark"; compact?: boolean }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5 font-semibold tracking-tight", className)}>
+    <span className={cn("inline-flex items-center gap-2.5", className)}>
       <VortrixMark />
       {compact ? (
         <span className="sr-only">Vortrix AI</span>
       ) : (
-        <span className={cn("text-[15px]", tone === "dark" ? "text-white" : "text-foreground")}>
-          Vortrix <span className={tone === "dark" ? "text-sidebar-foreground" : "text-brand-strong"}>AI</span>
+        <span className={cn("text-[17px] leading-none font-bold tracking-[-0.02em]", tone === "dark" ? "text-white" : "text-foreground")}>
+          Vortrix <span className={tone === "dark" ? "text-brand-violet" : "text-brand-strong"}>AI</span>
         </span>
       )}
     </span>

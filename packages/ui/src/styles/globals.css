@@ -1,6 +1,8 @@
 /*
  * Design system da Vortrix AI (convenção de variáveis do shadcn/ui, Tailwind v4).
  * Direção "Premium Híbrido": conteúdo claro (mist/branco), sidebar escura (midnight), destaque índigo/violeta.
+ * Referência: guia de marca Vortrix AI (midnight #0A0F1E, indigo #4F46E5, deep violet #8B5CF6, lavender #E9D5FF).
+ * Degradê só no símbolo e na composição do login; botões, cards, menus e estados são sólidos.
  * Regra: componentes usam SEMPRE estes tokens (bg-primary, text-muted-foreground, bg-success-soft...), nunca
  * hexadecimais soltos. Uma cor nova entra aqui primeiro.
  * O @source garante que o Tailwind do app que importar este CSS escaneie as classes deste pacote.
@@ -11,13 +13,16 @@
 
 :root {
   /* Paleta base da marca */
-  --vx-midnight: #0b1220;
-  --vx-midnight-2: #121a2b;
-  --vx-midnight-3: #1b2438;
+  --vx-midnight: #0a0f1e;
+  --vx-midnight-2: #111830;
+  --vx-midnight-3: #1a2340;
   --vx-indigo: #6366f1;
   --vx-indigo-strong: #4f46e5;
   --vx-indigo-deep: #4338ca;
-  --vx-lavender: #e9ecff;
+  --vx-violet: #8b5cf6;
+  --vx-lavender: #e9d5ff;
+  /* Tom claro derivado do lavender para fundos grandes (selos, ícones, balão da IA): mantém o texto índigo >= 4,5:1. */
+  --vx-lavender-soft: #f1ebff;
   --vx-mist: #f4f6fb;
   --vx-white: #ffffff;
 
@@ -43,7 +48,8 @@
   --accent: #f0f2fa;
   --accent-foreground: #101828;
   --brand: var(--vx-indigo);
-  --brand-soft: var(--vx-lavender);
+  --brand-soft: var(--vx-lavender-soft);
+  --brand-violet: var(--vx-violet);
   --brand-strong: var(--vx-indigo-strong);
 
   /* Bordas e foco */
@@ -70,11 +76,11 @@
   /* Sidebar escura */
   --sidebar: var(--vx-midnight);
   --sidebar-foreground: #a7b0c4;
-  --sidebar-muted: #6f7a92;
+  --sidebar-muted: #7a859d;
   --sidebar-accent: var(--vx-midnight-3);
   --sidebar-accent-foreground: var(--vx-white);
   --sidebar-active: rgb(99 102 241 / 0.18);
-  --sidebar-border: #1e2840;
+  --sidebar-border: #1c2540;
   --sidebar-surface: var(--vx-midnight-2);
   /* Estados sobre o fundo escuro (tons claros para contraste). */
   --sidebar-success: #4ade80;
@@ -83,7 +89,7 @@
 
   /* Mensagens da Inbox */
   --bubble-contact: var(--vx-white);
-  --bubble-ai: var(--vx-lavender);
+  --bubble-ai: var(--vx-lavender-soft);
   --bubble-agent: #1d2939;
   --bubble-system: #f6efe0;
 }
@@ -118,6 +124,7 @@
   --color-ring: var(--ring);
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-violet: var(--brand-violet);
   --color-brand-strong: var(--brand-strong);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
