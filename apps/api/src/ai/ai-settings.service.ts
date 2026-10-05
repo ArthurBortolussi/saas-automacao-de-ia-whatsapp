@@ -282,7 +282,7 @@ export class AiSettingsService {
       if (action === "RESUME") {
         if (!current.pausedAt) return;
         if (!current.enabled) {
-          throw new ConflictException("A IA foi desativada pelo suporte do Arthur AI e não pode ser retomada pela empresa.");
+          throw new ConflictException("A IA foi desativada pelo suporte da Vortrix AI e não pode ser retomada pela empresa.");
         }
         await tx.aiSettings.update({ where: { companyId: company.id }, data: { pausedAt: null, pausedByUserId: null } });
         await this.audit.record(

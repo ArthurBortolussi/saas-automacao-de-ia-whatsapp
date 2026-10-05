@@ -61,7 +61,7 @@ function inboundBody(message: InboundMessagePayload): string {
     message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title;
   const trimmed = text?.trim();
   if (trimmed) return trimmed.slice(0, MAX_BODY);
-  return `[Mensagem do tipo "${message.type}" recebida. Este tipo de conteúdo ainda não é exibido pelo Arthur AI.]`;
+  return `[Mensagem do tipo "${message.type}" recebida. Este tipo de conteúdo ainda não é exibido pela Vortrix AI.]`;
 }
 
 /** Timestamp da Meta (segundos). Valores absurdos (futuro distante) caem para "agora". */

@@ -1,9 +1,14 @@
-# CLAUDE.md — Arthur AI
+# CLAUDE.md — Vortrix AI
 
 Guia para sessões do Claude Code neste repositório. O README é a documentação de uso; este arquivo resume o
 estado do projeto, as regras que não podem ser quebradas e as decisões já tomadas. **Mantenha os dois coerentes.**
 
 ## Propósito
+
+Marca: **Vortrix AI** desde a Fase 8 (antes "Arthur AI"). Identificadores internos ficaram como estavam de propósito:
+pacotes `@arthur-ai/*`, bancos `arthur_ai`/`arthur_ai_test`, cookie `aai_session`, e-mails do seed. **Não renomear** sem
+motivo (quebra instalações e sessões existentes). Texto visível ao usuário, PDF e prompt da IA usam "Vortrix AI".
+A assistente de cada empresa tem nome próprio configurável (padrão atual "Sofia"): Vortrix AI é a plataforma, não a assistente.
 
 SaaS B2B **gerenciado** (não self-service) de atendimento pelo WhatsApp com IA. O SUPERADMIN (dono da plataforma)
 cadastra empresas e usuários; cada empresa acessa só o próprio ambiente. Público: pequenas e médias empresas
@@ -17,7 +22,7 @@ brasileiras (interface e mensagens em português do Brasil).
 | `apps/web` | Next.js 16 (App Router), Tailwind v4, shadcn/ui. O arquivo de interceptação é `proxy.ts` (antigo middleware) |
 | `packages/database` | Prisma **7.10.0 (versão fixa)**, `prisma7.config.ts`, migrations, seed, hash de senha, `TokenCipher` |
 | `packages/shared` | Schemas Zod (fonte única de validação para web e api), enums, tipos de resposta, regras de conversa |
-| `packages/ui` | Componentes shadcn/ui copiados do código-fonte oficial + tokens de tema |
+| `packages/ui` | Componentes shadcn/ui (base oficial, restilizados) + **tokens do design system** (`styles/globals.css`) |
 
 Versões escolhidas de propósito (não "atualizar" sem motivo): TypeScript **6.0** (`typescript-eslint` exige < 6.1),
 ESLint **9** (plugins do `eslint-config-next` não suportam o 10), Vitest (Jest não carrega o Nest 12 ESM no Node 22),
@@ -58,6 +63,10 @@ Atendimento, Horários, Mensagens, Permissões), permissões individuais por gru
 três horários independentes com feriados nacionais e datas especiais, quatro mensagens automáticas, alerta de espera
 excessiva, pausa da IA pela empresa, limite mensal de custo estimado da IA, suspensão/reativação de empresas, contatos
 de suporte e estado básico das integrações (admin → Configurações). Detalhes na seção abaixo.
+
+**Fase 8 — rebranding, design system e redesign.** Nome Vortrix AI, tokens centralizados, sidebar escura, login,
+Dashboard executivo, Inbox refinada, todas as telas da empresa e do Super Admin, estados de carregamento/erro/vazio,
+responsividade e acessibilidade. Nenhuma regra de negócio, rota ou modelo de dados mudou. Detalhes na seção abaixo.
 
 ## Regras de segurança e multi-tenancy (obrigatórias)
 
@@ -158,9 +167,9 @@ PostgreSQL (backup maior); alertas só visuais.
 
 ## Próximos passos
 
-**Fase 8** (decisão do proprietário): preparação para produção, segurança final, infraestrutura, deploy e validação das
-integrações reais (WhatsApp com número real; Claude com a chave real: qualidade, taxa de transferência, custo por
-conversa, conferir o limite mensal contra a fatura). **Fase 9**: acabamento visual e identidade da plataforma.
+**Fase 9** (decisão do proprietário; a ordem 8/9 foi invertida): homologação, preparação para produção, segurança final,
+infraestrutura, deploy e validação das integrações reais (WhatsApp com número real; Claude com a chave real: qualidade,
+taxa de transferência, custo por conversa, conferir o limite mensal contra a fatura). Logo definitivo quando existir.
 Depois, quando o cliente pedir: gerenciador de modelos aprovados; mídia; tempo real (websocket) se o polling pesar;
 rate limit compartilhado se houver mais de uma instância; upload de documentos e busca na base; armazenamento de
 objetos para logotipos se o volume crescer.
@@ -335,5 +344,38 @@ agendamento de alterações nem aprovação por outra pessoa.
 feriados) e `settings-rules.ts`. Migração `20261006120000_settings_platform_admin` (aditiva, CHECKs à mão).
 Web: `app/dashboard/settings/*`, `components/settings/*`, `components/admin/*`, `app/suspended`, `components/confirm-action.tsx`.
 
-**Ainda depende de validação real (Fase 8):** mensagens automáticas e descarte na suspensão com a Meta real; custo real
+**Ainda depende de validação real (Fase 9):** mensagens automáticas e descarte na suspensão com a Meta real; custo real
 × estimativa e o limite mensal com o Claude real (a reserva usa ~3 caracteres por token, conservadora para o português).
+
+## Fase 8 — implementada (rebranding, design system e redesign)
+
+**Decisões do proprietário (definitivas):** marca Vortrix AI; direção "Premium Híbrido" (conteúdo claro, sidebar escura
+midnight, índigo/violeta, cards limpos, sem neon/glass/gradientes pesados); monograma V + X (provisório até existir o
+SVG definitivo); só o tema principal (sem dark mode); nada de regra de negócio nova nesta fase.
+
+**Regras para qualquer tela nova:**
+- Cores só por tokens (`packages/ui/src/styles/globals.css`): `bg-primary`, `text-muted-foreground`, `bg-success-soft`,
+  `text-warning`, `bg-sidebar`, `var(--chart-1)`... **Nunca** hexadecimal ou cor da paleta do Tailwind (`bg-red-500`; `text-white` é permitido) em
+  componente. Cor nova entra primeiro como token. Exceções: SVGs de `public/brand/` e `app/icon.svg` (assets) e
+  `themeColor` no `layout.tsx` (exige literal); a cor do PDF (`report-pdf.ts`) espelha `--primary`.
+- Estrutura de página: `PageHeader` (título, descrição, ação principal, `back`, `badges`) → conteúdo em `SectionCard`/
+  `Card`; indicadores com `StatCard`; abas-rota com `NavTabs`; vazio com `Empty`; carregamento com `Skeleton`/
+  `PageSkeleton`; erro de página pelos `error.tsx` (`ErrorState`).
+- Ação crítica = `ConfirmAction` (modal Radix); nada de `window.confirm`. Ação principal = botão `default` (índigo);
+  perigosa = `destructive`/`destructive-outline`.
+- Estado nunca só por cor (selo com texto; ícone + rótulo nas mensagens da Inbox). Foco visível em todo controle.
+- Checkbox/radio/select/hora continuam **nativos** (os formulários usam `FormData`); não trocar por Radix sem rever os forms.
+- Breakpoints: sidebar fixa a partir de `lg`; abaixo, `MobileNav` (drawer `Sheet`). A Inbox usa `InboxFrame` para ocupar
+  a altura útil (`100dvh - 3.5rem` no mobile, `100dvh` em `lg`) — se mudar a altura da barra do mobile, ajuste ali.
+- Gráficos: paleta categórica validada (IA índigo, equipe verde-azulado, aguardando âmbar, residual cinza) em ordem fixa,
+  legenda com números e tabela; não adicionar cor sem revalidar contraste e daltonismo.
+- Ícones só de `lucide-react`. Fonte Geist (pacote `geist`, sem download no build).
+
+**Peças:** `packages/ui/src/components/{dialog,sheet}.tsx` (novos), variantes novas em `button`/`badge`/`alert`;
+`apps/web/src/components/{app-shell,sidebar-nav,mobile-nav,logo,page-header,section-card,nav-tabs,avatar,error-state,
+page-skeleton,confirm-action}.tsx`, `analytics/stat-card.tsx`; `app/dashboard/inbox/inbox-frame.tsx`; `public/brand/`.
+O Dashboard da empresa mostra os **totais dos filtros da Inbox** (`?filter=X&pageSize=1`), sem indicador novo.
+
+**Limitações visuais conhecidas:** logo provisório; sem toasts (retorno junto do formulário); mensagens da IA aparecem
+como "IA" (o nome do assistente não vem na API de mensagens); tabelas largas rolam na horizontal no celular; formulários
+das Configurações ajustados por tokens, não redesenhados campo a campo.

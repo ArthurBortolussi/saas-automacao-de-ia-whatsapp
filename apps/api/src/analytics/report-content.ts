@@ -261,7 +261,7 @@ export function platformContent(report: PlatformAnalyticsReport): ReportContent 
   const usage = usageSection(report.ai.bySource);
   const { messages } = report;
   return {
-    ...base(report, "Relatório consolidado da plataforma", "Arthur AI — todas as empresas"),
+    ...base(report, "Relatório consolidado da plataforma", "Vortrix AI — todas as empresas"),
     sections: [
       {
         title: "Empresas",

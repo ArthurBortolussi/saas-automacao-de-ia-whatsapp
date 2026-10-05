@@ -1,9 +1,14 @@
-# Arthur AI
+# Vortrix AI
 
 Plataforma B2B **gerenciada** de atendimento automatizado pelo WhatsApp, com IA (Claude, da Anthropic).
 Não é self-service: o **SUPERADMIN** cadastra empresas e usuários; cada empresa acessa apenas o próprio ambiente.
 
-> **Estado atual: FASE 7** — fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
+> **Marca:** o produto se chamava **Arthur AI** até a Fase 7. Identificadores internos foram mantidos de propósito
+> para não quebrar compatibilidade: pacotes `@arthur-ai/*`, bancos `arthur_ai`/`arthur_ai_test`, cookie de sessão
+> `aai_session` e os e-mails do seed (`admin@arthurai.local`). Tudo o que o usuário vê usa **Vortrix AI**.
+
+> **Estado atual: FASE 8** — rebranding para Vortrix AI, design system e redesign completo da interface (Fase 8), sobre
+> as Fases 1 a 7: fundação multi-tenant (Fase 1), contatos/conversas/Inbox (Fase 2), **WhatsApp Cloud API
 > oficial da Meta** (Fase 3), **atendimento automático com IA + base de conhecimento** (Fase 4), **equipe,
 > distribuição automática, fila de espera, transferências e encerramento de atendimentos** (Fase 5), **Analytics e
 > relatórios com exportação em PDF e Excel** (Fase 6) e **configurações e administração da plataforma** (Fase 7:
@@ -175,7 +180,7 @@ aproveita o cache). Se não cabe, entram as entradas com mais palavras em comum 
 necessidade demonstrada nesta escala; o caminho futuro é busca full-text do PostgreSQL.
 
 **Contexto e segurança do prompt**
-- `system`: (1) regras fixas do Arthur AI, (2) empresa + assistente + orientações + base, (3) data/hora atual.
+- `system`: (1) regras fixas da Vortrix AI, (2) empresa + assistente + orientações + base, (3) data/hora atual.
   Os blocos 1 e 2 têm `cache_control` (o 1 é igual para todas as empresas); o 3 fica depois do cache.
 - Regras: português do Brasil, tom da empresa, prioridade para a base, **nunca inventar** preços/horários/políticas,
   não prometer o que não está documentado, pedir esclarecimento quando ambíguo, admitir quando não sabe, transferir
@@ -498,6 +503,52 @@ grupo: `company.profile_updated`, `company.logo_updated/removed`, `company.suspe
 `settings.permissions_changed` (concedidas e revogadas), `settings.schedules_updated`,
 `settings.exception_created/updated/deleted`, `settings.messages_updated`, `settings.service_updated`,
 `ai.paused/resumed`, `ai.limit_updated`, `ai.usage_threshold`, `platform.settings_updated`. Nunca senhas, tokens ou chaves.
+
+### Identidade visual e design system (Fase 8)
+
+Direção **Premium Híbrido**: conteúdo claro, sidebar escura (midnight), destaque índigo/violeta, cards brancos com
+bordas discretas e sombras mínimas. Só um tema (claro com sidebar escura); não há dark mode completo.
+
+**Tokens** (fonte única: `packages/ui/src/styles/globals.css`; componentes usam as classes do Tailwind geradas a partir
+deles, nunca hexadecimais soltos):
+
+| Token | Valor | Uso |
+|---|---|---|
+| `--vx-midnight` → `--sidebar` | `#0B1220` | Sidebar, barra do mobile, painel do login, sobreposição de modais |
+| `--vx-indigo-strong` → `--primary` | `#4F46E5` | Botão principal, aba ativa, links de destaque, gráfico "IA" |
+| `--vx-indigo` → `--brand`/`--ring` | `#6366F1` | Destaques, foco, indicador do menu ativo |
+| `--vx-lavender` → `--brand-soft` | `#E9ECFF` | Fundos de ícones, selos de marca, balão da IA |
+| `--vx-mist` → `--background` | `#F4F6FB` | Fundo do conteúdo |
+| `--card` | `#FFFFFF` | Cards, tabelas, formulários |
+| `--success` / `--warning` / `--destructive` / `--info` | `#15803D` / `#B45309` / `#DC2626` / `#4F46E5` | Estados (texto com contraste ≥ 4,5:1); cada um tem uma versão `-soft` para fundos |
+| `--chart-1..3`, `--chart-muted` | `#4F46E5`, `#0D9488`, `#D97706`, `#CBD2DE` | Gráficos: IA, equipe, aguardando, residual (validados para daltonismo) |
+| `--bubble-*` | — | Mensagens da Inbox: cliente (branco), IA (lavanda), equipe (grafite), automática (areia) |
+
+**Tipografia:** Geist Sans (texto, números tabulares nos indicadores) e Geist Mono, via pacote `geist` (sem download
+de fontes no build). Hierarquia: título de página 24 px (20 no mobile), título de card 15 px, corpo 14 px, legendas
+12–13 px, rótulos de seção 11 px em caixa alta.
+
+**Ícones:** somente `lucide-react`, 16–18 px, sempre com texto ao lado nas ações importantes.
+
+**Componentes compartilhados** (`packages/ui/src/components`): `Button` (`default`, `secondary`, `outline`, `ghost`,
+`destructive`, `destructive-outline`, `link`), `Badge` (`success`, `warning`, `info`, `destructive`, `brand`,
+`neutral`, `outline`), `Alert` (`default`, `success`, `warning`, `info`, `destructive`), `Card`, `Input`,
+`NativeSelect`, `Textarea`, `Table`, `Empty`, `Skeleton`, `Dialog` e `Sheet` (Radix). No web (`apps/web/src/components`):
+`AppShell`/`SidebarNav`/`MobileNav` (shell), `PageHeader`, `SectionCard`, `NavTabs`, `StatCard`, `Avatar`,
+`ConfirmAction` (modal de confirmação), `ErrorState`, `PageSkeleton`, `Logo`/`VortrixMark`.
+
+**Regras visuais:**
+- Estado nunca só por cor: selos sempre com texto; origem das mensagens com posição, cor **e** rótulo com ícone.
+- Ações críticas (suspender, pausar a IA, desativar funcionário/WhatsApp, excluir, finalizar atendimento) passam pelo
+  `ConfirmAction`; a ação principal da tela é o botão índigo, as perigosas usam vermelho.
+- Checkbox e radio continuam nativos (os formulários leem `FormData`), coloridos com `accent-color`.
+- Animações só em hover, abertura de modal/drawer e troca de estado (≤ 200 ms); `prefers-reduced-motion` desliga.
+- A partir de `lg` (1024 px) a sidebar é fixa; abaixo disso vira drawer. A Inbox mostra lista + conversa a partir de
+  `md` e o painel do contato a partir de `xl`; no celular, uma coluna por vez.
+
+**Logo:** o monograma V + X atual é **provisório** (SVG inline em `apps/web/src/components/logo.tsx`). Arquivos para
+substituição em `apps/web/public/brand/` (símbolo, horizontal claro/escuro) e `apps/web/src/app/icon.svg` (favicon);
+veja `apps/web/public/brand/README.md`.
 
 ## Pré-requisitos
 
@@ -864,6 +915,21 @@ Para simular clientes, abra uma quinta janela e use `pnpm.cmd whatsapp:simulate 
 18. **Analytics preservado**: **Analytics** da empresa e do Superadmin abrem como antes, com os atendimentos de hoje;
     exporte PDF e Excel normalmente.
 
+## Revisar o novo design (Fase 8) — Windows / PowerShell
+
+1. `pnpm.cmd install`, `pnpm.cmd db:deploy`, depois `pnpm.cmd dev:api` e `pnpm.cmd dev:web` (opcional:
+   `pnpm.cmd whatsapp:mock-graph`, `pnpm.cmd ai:mock-anthropic` e `pnpm.cmd whatsapp:simulate --from 5511988887777 --text "Olá"`
+   para ter conversas com cliente, IA e mensagens automáticas).
+2. **Login** (`/login`): painel escuro à esquerda (desktop), formulário à direita; teste senha errada.
+3. Como `owner@demo.local`: **Dashboard** (situação agora, WhatsApp, atalhos), **Inbox** (filtros, conversa, origem de
+   cada mensagem, Finalizar atendimento → modal), **Contatos**, **Base de conhecimento**, **Equipe**, **Analytics**,
+   **Configurações** (seis abas; "Pausar a IA" abre a confirmação).
+4. Como `admin@arthurai.local`: **Dashboard da plataforma**, **Empresas → empresa** (faixa "dados da empresa", abas,
+   Suspender), **Usuários**, **Analytics**, **Configurações**.
+5. Suspenda uma empresa e entre com um usuário dela: **tela de suspensão**. Reative em seguida.
+6. Responsividade: DevTools (F12) → modo dispositivo, larguras ~390 px (menu vira drawer; Inbox em uma coluna),
+   ~820 px (tablet) e ≥ 1280 px. Teclado: Tab mostra o link "Pular para o conteúdo" e o foco visível.
+
 ## Usar o Claude de verdade (chave da Anthropic)
 
 1. Crie uma chave em https://console.anthropic.com (Settings → API Keys) numa conta com créditos.
@@ -887,7 +953,7 @@ O que é preciso:
 3. **Endpoint HTTPS público** acessível pela Meta (`localhost` não funciona). Em produção, o domínio da API (com TLS). Para testar a partir do seu computador, um túnel HTTPS, como Cloudflare Tunnel ou ngrok, apontando para a porta 4000.
 4. No painel do app (WhatsApp → Configuração), cadastre o **Callback URL** `https://SEU-DOMINIO/api/webhooks/whatsapp`, o **Verify token** igual a `WHATSAPP_WEBHOOK_VERIFY_TOKEN` e assine o campo **`messages`**.
 5. No `.env` do servidor: `WHATSAPP_APP_SECRET` (Configurações do app → Básico), `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, uma `WHATSAPP_TOKEN_ENCRYPTION_KEY` nova, `WHATSAPP_GRAPH_API_BASE_URL=https://graph.facebook.com`. Reinicie a API.
-6. No Arthur AI, como SUPERADMIN: **Empresas → empresa → aba WhatsApp**. Informe o WABA ID, o Phone Number ID, o número e o token, salve e clique em **Testar conexão** (deve ficar "Conectado").
+6. Na Vortrix AI, como SUPERADMIN: **Empresas → empresa → aba WhatsApp**. Informe o WABA ID, o Phone Number ID, o número e o token, salve e clique em **Testar conexão** (deve ficar "Conectado").
 7. Mande uma mensagem do seu celular para o número da empresa: ela deve aparecer na Inbox. Responda em até 24h.
 
 Durante o teste com o número de teste da Meta, só os destinatários cadastrados na lista de permitidos recebem mensagens (erro 131030 caso contrário).
@@ -912,6 +978,18 @@ Fase 7: boas-vindas com webhooks simultâneos, reservas de orçamento concorrent
 pausa, suspensão com eventos já na fila).
 
 ## Limitações conhecidas
+
+**Visuais (Fase 8):**
+- **Logo provisório**: monograma V + X simples, sem a arte definitiva; os SVGs horizontais usam texto (dependem da fonte instalada).
+- **Sem dark mode** (só o tema claro com sidebar escura) e **sem toasts**: o retorno das ações aparece junto do formulário/botão.
+- A Inbox identifica as mensagens da IA como "IA", sem o nome configurado do assistente (ex.: Sofia): o nome não vem na
+  API de mensagens e buscá-lo a cada atualização da Inbox (5 s) teria custo.
+- Selects, checkboxes, radios e campos de hora são **nativos** (estilizados, não substituídos): a aparência do menu
+  aberto e o formato 12/24 h seguem o navegador e o idioma do sistema.
+- Tabelas largas (Equipe, Uso, Usuários) rolam na horizontal dentro do card no celular, em vez de virarem cards.
+- Formulários da Fase 7 (Configurações) foram ajustados pelos tokens e componentes, não redesenhados campo a campo.
+
+**Funcionais:**
 
 - **Rate limit em memória**: zera quando a API reinicia e não é compartilhado entre instâncias. Com mais de uma instância, precisa de store compartilhado (ex.: Redis — fora do escopo desta fase). Veja também `TRUST_PROXY` acima.
 - **Lockout por e-mail**: 5 falhas em 15 min bloqueiam aquele e-mail, inclusive para o dono legítimo (troca consciente de disponibilidade por proteção contra força bruta).
@@ -947,7 +1025,7 @@ pausa, suspensão com eventos já na fila).
 - **Inatividade** é verificada a cada ciclo do worker (5 s por padrão): o encerramento pode acontecer alguns segundos
   depois do prazo.
 - **Envio duplicado em caso extremo**: se a API cair depois que a Meta aceitou a mensagem e antes de gravar o wamid, a retentativa pode reenviar (a Cloud API não oferece chave de idempotência).
-- **Status de mensagens enviadas fora do Arthur AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
+- **Status de mensagens enviadas fora da Vortrix AI** (pelo app do WhatsApp Business ou outra ferramenta) são ignorados.
 - **Busca de contatos** usa `ILIKE` (varredura); com muitos milhares de contatos por empresa, considerar índice trigram.
 - **Telefone**: o 9º dígito de celulares brasileiros é tratado ao vincular mensagens recebidas a contatos existentes; contatos cadastrados à mão continuam com o número digitado.
 - **Primeira execução do encerramento da IA**: conversas da IA que já estavam paradas além do prazo são encerradas no

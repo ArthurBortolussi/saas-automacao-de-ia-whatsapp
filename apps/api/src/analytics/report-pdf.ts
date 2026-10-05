@@ -3,7 +3,8 @@ import { formatDurationPt } from "@arthur-ai/shared";
 import { formatCount, formatInstant, formatUsdText, type ReportContent, type ReportTable, type ValueKind } from "./report-content.js";
 
 const MARGIN = 48;
-const BRAND = "#0f766e";
+// Índigo da marca Vortrix AI (mesmo valor do token --primary do web).
+const BRAND = "#4f46e5";
 const MUTED = "#6b7280";
 const RULE = "#e5e7eb";
 
@@ -30,7 +31,7 @@ export function renderPdf(content: ReportContent): Promise<Buffer> {
     size: "A4",
     margin: MARGIN,
     bufferPages: true,
-    info: { Title: `${content.title} — ${content.subject}`, Author: "Arthur AI", Subject: content.periodLabel },
+    info: { Title: `${content.title} — ${content.subject}`, Author: "Vortrix AI", Subject: content.periodLabel },
   });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -50,7 +51,7 @@ export function renderPdf(content: ReportContent): Promise<Buffer> {
   };
 
   // Cabeçalho
-  doc.font("Helvetica-Bold").fontSize(18).fillColor(BRAND).text("Arthur AI", MARGIN, MARGIN);
+  doc.font("Helvetica-Bold").fontSize(18).fillColor(BRAND).text("Vortrix AI", MARGIN, MARGIN);
   doc.moveDown(0.2).fillColor("#111827").fontSize(15).text(content.title);
   doc.font("Helvetica").fontSize(11).fillColor("#111827").text(content.subject);
   doc.moveDown(0.4).fontSize(9).fillColor(MUTED);
@@ -97,7 +98,7 @@ export function renderPdf(content: ReportContent): Promise<Buffer> {
     const bottomMargin = doc.page.margins.bottom;
     doc.page.margins.bottom = 0;
     doc.font("Helvetica").fontSize(8).fillColor(MUTED);
-    doc.text(`Arthur AI · ${content.subject} · página ${index + 1} de ${range.count}`, MARGIN, doc.page.height - MARGIN, {
+    doc.text(`Vortrix AI · ${content.subject} · página ${index + 1} de ${range.count}`, MARGIN, doc.page.height - MARGIN, {
       width,
       align: "center",
       lineBreak: false,

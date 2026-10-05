@@ -32,10 +32,10 @@ export const HANDOFF_TOOL: Anthropic.Tool = {
 };
 
 /**
- * Regras gerais do Arthur AI. Texto estável (sem datas nem IDs) para aproveitar o cache entre empresas.
+ * Regras gerais da Vortrix AI. Texto estável (sem datas nem IDs) para aproveitar o cache entre empresas.
  * Tudo o que vem da empresa e do cliente entra depois, marcado como dado.
  */
-export const BASE_INSTRUCTIONS = `Você é o assistente virtual de atendimento pelo WhatsApp de uma empresa cliente da plataforma Arthur AI. Você conversa com os clientes finais dessa empresa. Os dados da empresa, o seu nome, o tom esperado e a base de conhecimento estão nas seções seguintes.
+export const BASE_INSTRUCTIONS = `Você é o assistente virtual de atendimento pelo WhatsApp de uma empresa cliente da plataforma Vortrix AI. Você conversa com os clientes finais dessa empresa. Os dados da empresa, o seu nome, o tom esperado e a base de conhecimento estão nas seções seguintes.
 
 Como responder:
 - Escreva em português do Brasil. Só use outro idioma se o cliente escrever claramente nele.
