@@ -107,7 +107,7 @@ responsividade e acessibilidade. Nenhuma regra de negócio, rota ou modelo de da
   `prisma/migrations/<timestamp>_<nome>/` e aplique com `migrate deploy`. Migrations devem ser **aditivas**;
   `CHECK`s extras são escritos à mão no SQL.
 - Enums existem no Prisma e no `shared`; `packages/database/src/enum-parity.ts` falha o typecheck se divergirem.
-- `next dev` gera `apps/web/AGENTS.md` e `apps/web/CLAUDE.md` automaticamente: não são deste projeto, não commitar.
+- `next dev` gera `apps/web/AGENTS.md` e `apps/web/CLAUDE.md` automaticamente: não são deste projeto (ignorados no `.gitignore`).
 
 ## Comandos
 

@@ -10,3 +10,7 @@ coverage/
 packages/database/src/generated/
 .DS_Store
 *.log
+
+# Gerados pelo `next dev` (não são deste projeto; ver CLAUDE.md)
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
