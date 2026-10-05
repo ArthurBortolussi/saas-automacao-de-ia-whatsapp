@@ -3,7 +3,8 @@
 import { MESSAGE_MAX_LENGTH, sendMessageSchema, type ConversationChannel, type ConversationMode } from "@arthur-ai/shared";
 import { Button } from "@arthur-ai/ui/components/button";
 import { Textarea } from "@arthur-ai/ui/components/textarea";
-import { SendHorizontal } from "lucide-react";
+import { cn } from "@arthur-ai/ui/lib/utils";
+import { Loader2, Lock, SendHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { apiMutate } from "@/lib/api-client";
@@ -70,38 +71,47 @@ export function Composer({ companyId, conversationId, canReply, closed = false, 
   const whatsapp = channel === "WHATSAPP";
   if (!canReply || (whatsapp && !serviceWindowOpen)) {
     return (
-      <div className="border-t bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">
-        {closed ? "Atendimento finalizado. Ele é reaberto quando o cliente escrever de novo." : canReply ? WINDOW_CLOSED_HINT : BLOCKED_HINT[mode]}
+      <div className="flex items-center justify-center gap-2 border-t bg-card px-4 py-3.5 text-center text-sm text-muted-foreground">
+        <Lock className="size-4 shrink-0" aria-hidden />
+        <span>{closed ? "Atendimento finalizado. Ele é reaberto quando o cliente escrever de novo." : canReply ? WINDOW_CLOSED_HINT : BLOCKED_HINT[mode]}</span>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="border-t p-3">
-      <div className="flex items-end gap-2">
+    <form onSubmit={onSubmit} className="border-t bg-card px-3 py-3 sm:px-5">
+      <div
+        className={cn(
+          "flex items-end gap-2 rounded-xl border border-input bg-card p-1.5 pl-3 shadow-xs transition-[border-color,box-shadow] focus-within:border-brand focus-within:ring-[3px] focus-within:ring-ring/20",
+          error && "border-destructive",
+        )}
+      >
         <Textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Escreva uma mensagem… (Enter envia, Shift+Enter quebra linha)"
+          placeholder="Escreva uma mensagem…"
           aria-label="Mensagem"
-          rows={2}
+          aria-describedby="composer-hint"
+          aria-invalid={error ? true : undefined}
+          rows={1}
           maxLength={MESSAGE_MAX_LENGTH}
-          className="max-h-40 min-h-11 resize-none"
+          className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0 disabled:bg-transparent"
           disabled={pending}
         />
-        <Button type="submit" size="icon" disabled={pending || body.trim() === ""} aria-label="Enviar">
-          <SendHorizontal />
+        <Button type="submit" size="icon" disabled={pending || body.trim() === ""} aria-label={pending ? "Enviando" : "Enviar"} className="shrink-0 rounded-lg">
+          {pending ? <Loader2 className="animate-spin" /> : <SendHorizontal />}
         </Button>
       </div>
-      <p className="mt-1.5 text-[11px] text-muted-foreground">
+      <p id="composer-hint" className="mt-1.5 flex flex-wrap justify-between gap-x-3 px-1 text-[11px] text-muted-foreground">
         {error ? (
-          <span className="text-destructive">{error}</span>
-        ) : whatsapp ? (
-          "Será enviada ao cliente pelo WhatsApp."
+          <span role="alert" className="font-medium text-destructive">
+            {error}
+          </span>
         ) : (
-          "Conversa interna: nada é enviado ao cliente."
+          <span>{whatsapp ? "Será enviada ao cliente pelo WhatsApp." : "Conversa interna: nada é enviado ao cliente."}</span>
         )}
+        <span className="hidden sm:inline">Enter envia · Shift+Enter quebra linha</span>
       </p>
     </form>
   );

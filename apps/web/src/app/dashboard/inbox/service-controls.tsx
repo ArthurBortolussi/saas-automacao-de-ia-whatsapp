@@ -6,6 +6,7 @@ import { NativeSelect, NativeSelectOption } from "@arthur-ai/ui/components/nativ
 import { ArrowRightLeft, CircleCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { ConfirmAction } from "@/components/confirm-action";
 import { apiMutate } from "@/lib/api-client";
 
 interface Props {
@@ -25,7 +26,6 @@ export function ServiceControls({ companyId, conversation }: Props) {
   if (!conversation.permissions.close && !conversation.permissions.transfer) return null;
 
   function close() {
-    if (!window.confirm("Finalizar este atendimento? Se o cliente escrever de novo, a conversa é reaberta.")) return;
     setMessage(null);
     startTransition(async () => {
       const result = await apiMutate("POST", `${base}/close`);
@@ -79,6 +79,7 @@ export function ServiceControls({ companyId, conversation }: Props) {
           <>
             <NativeSelect
               size="sm"
+              className="max-w-56"
               aria-label="Transferir para"
               value={target}
               onChange={(event) => {
@@ -92,7 +93,7 @@ export function ServiceControls({ companyId, conversation }: Props) {
               ))}
             </NativeSelect>
             <Button size="sm" onClick={transfer} disabled={pending || !target}>
-              Confirmar
+              Transferir
             </Button>
           </>
         ) : null}
@@ -110,12 +111,27 @@ export function ServiceControls({ companyId, conversation }: Props) {
           </Button>
         ) : null}
         {conversation.permissions.close ? (
-          <Button size="sm" variant="outline" onClick={close} disabled={pending}>
-            <CircleCheck /> Finalizar atendimento
-          </Button>
+          <ConfirmAction
+            size="sm"
+            triggerVariant="outline"
+            label={
+              <>
+                <CircleCheck /> Finalizar atendimento
+              </>
+            }
+            title="Finalizar este atendimento?"
+            effect="O atendimento é encerrado agora. Se o cliente escrever de novo, a conversa é reaberta automaticamente."
+            confirmLabel="Finalizar"
+            pending={pending}
+            onConfirm={close}
+          />
         ) : null}
       </div>
-      {message ? <p className={message.kind === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{message.text}</p> : null}
+      {message ? (
+        <p role="status" className={message.kind === "error" ? "text-xs font-medium text-destructive" : "text-xs text-muted-foreground"}>
+          {message.text}
+        </p>
+      ) : null}
     </div>
   );
 }

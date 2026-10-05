@@ -53,7 +53,7 @@ export function ModeControls({ companyId, conversationId, mode }: ModeControlsPr
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <div className="flex flex-wrap gap-2">
         {AVAILABLE[mode].map((action, index) => (
           <Button key={action} size="sm" variant={index === 0 ? "default" : "outline"} disabled={pending} onClick={() => run(action)}>
@@ -63,7 +63,7 @@ export function ModeControls({ companyId, conversationId, mode }: ModeControlsPr
         ))}
       </div>
       {feedback ? (
-        <p role="status" className={feedback.kind === "error" ? "text-xs text-destructive" : "text-xs text-success"}>
+        <p role="status" className={feedback.kind === "error" ? "text-xs font-medium text-destructive" : "text-xs font-medium text-success"}>
           {feedback.text}
         </p>
       ) : null}

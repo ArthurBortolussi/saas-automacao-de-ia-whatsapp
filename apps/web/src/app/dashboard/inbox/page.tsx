@@ -8,6 +8,7 @@ import { fetchPageData, fetchPageDataOrNull, requireMembership } from "@/lib/api
 import { ChatPanel } from "./chat-panel";
 import { ContactPanel } from "./contact-panel";
 import { ConversationList } from "./conversation-list";
+import { InboxFrame } from "./inbox-frame";
 
 export const metadata: Metadata = { title: "Inbox" };
 
@@ -36,16 +37,16 @@ export default async function InboxPage({ searchParams }: PageProps<"/dashboard/
   ]);
 
   return (
-    <div className="-mx-4 -my-6 flex h-[calc(100dvh-7.5rem)] overflow-hidden border-y bg-card md:-mx-10 md:-my-10 md:h-dvh md:border-y-0">
+    <InboxFrame>
       <AutoRefresh />
-      <aside className={cn("w-full shrink-0 flex-col border-r md:flex md:w-80", selectedId ? "hidden" : "flex")}>
+      <aside className={cn("w-full shrink-0 flex-col border-r md:flex md:w-[340px]", selectedId ? "hidden" : "flex")}>
         <ConversationList conversations={list} filter={filter} selectedId={conversation?.id ?? null} assignee={assignee} />
       </aside>
       <section className={cn("min-w-0 flex-1 flex-col", selectedId ? "flex" : "hidden md:flex")}>
         {conversation && messages ? (
           <ChatPanel key={conversation.id} companyId={companyId} conversation={conversation} messages={messages} filter={filter} />
         ) : (
-          <div className="grid flex-1 place-items-center p-6">
+          <div className="grid flex-1 place-items-center bg-subtle p-6">
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
@@ -63,10 +64,10 @@ export default async function InboxPage({ searchParams }: PageProps<"/dashboard/
         )}
       </section>
       {conversation ? (
-        <aside className="hidden w-80 shrink-0 overflow-y-auto border-l xl:block">
+        <aside className="scroll-thin hidden w-[300px] shrink-0 overflow-y-auto border-l xl:block">
           <ContactPanel conversation={conversation} />
         </aside>
       ) : null}
-    </div>
+    </InboxFrame>
   );
 }

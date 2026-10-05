@@ -74,7 +74,7 @@ export const CONTACT_SOURCE_LABEL: Record<ContactSource, string> = {
 
 export const CONVERSATION_MODE_LABEL: Record<ConversationMode, string> = {
   AI: "IA atendendo",
-  HUMAN: "Humano atendendo",
+  HUMAN: "Atendimento humano",
   PAUSED: "Pausada",
 };
 

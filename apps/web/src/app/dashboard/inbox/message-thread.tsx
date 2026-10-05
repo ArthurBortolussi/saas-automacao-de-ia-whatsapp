@@ -3,7 +3,7 @@
 import type { MessageDeliveryStatus, MessageItem, MessagePage } from "@arthur-ai/shared";
 import { Button } from "@arthur-ai/ui/components/button";
 import { cn } from "@arthur-ai/ui/lib/utils";
-import { AlertCircle, Check, CheckCheck, Clock } from "lucide-react";
+import { AlertCircle, Bot, Check, CheckCheck, Clock, Headset, Info, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatDate, formatTime } from "@/lib/format";
 
@@ -14,25 +14,33 @@ interface MessageThreadProps {
   latest: MessagePage;
 }
 
-const SENDER_LABEL: Record<MessageItem["senderType"], string> = {
-  CONTACT: "Cliente",
-  AGENT: "Atendente",
-  AI: "IA",
-  SYSTEM: "Sistema",
+/**
+ * Origem da mensagem: cada uma tem posição, cor e rótulo com ícone próprios (a origem nunca depende só da cor).
+ * Cliente à esquerda; IA, equipe e mensagens automáticas à direita (todas são enviadas ao cliente).
+ */
+const ORIGIN: Record<MessageItem["senderType"], { label: string; icon: typeof Bot; bubble: string; meta: string; read: string }> = {
+  CONTACT: { label: "Cliente", icon: UserRound, bubble: "rounded-bl-md border bg-bubble-contact text-foreground", meta: "text-muted-foreground", read: "text-brand-strong" },
+  AI: { label: "IA", icon: Bot, bubble: "rounded-br-md border border-brand/15 bg-bubble-ai text-foreground", meta: "text-brand-strong/80", read: "text-brand-strong" },
+  AGENT: { label: "Equipe", icon: Headset, bubble: "rounded-br-md bg-bubble-agent text-white", meta: "text-white/70", read: "text-sidebar-success" },
+  SYSTEM: { label: "Mensagem automática", icon: Info, bubble: "rounded-br-md border border-warning/20 bg-bubble-system text-foreground", meta: "text-warning", read: "text-brand-strong" },
 };
 
-const STATUS: Record<MessageDeliveryStatus, { label: string; icon: typeof Check; className?: string }> = {
+const STATUS: Record<MessageDeliveryStatus, { label: string; icon: typeof Check }> = {
   PENDING: { label: "Enviando", icon: Clock },
   SENT: { label: "Enviada", icon: Check },
   DELIVERED: { label: "Entregue", icon: CheckCheck },
-  READ: { label: "Lida", icon: CheckCheck, className: "text-sky-300" },
-  FAILED: { label: "Falhou", icon: AlertCircle, className: "text-red-300" },
+  READ: { label: "Lida", icon: CheckCheck },
+  FAILED: { label: "Falhou", icon: AlertCircle },
 };
 
-function DeliveryStatus({ status }: { status: MessageDeliveryStatus }) {
-  const { label, icon: Icon, className } = STATUS[status];
+function DeliveryStatus({ status, readClassName }: { status: MessageDeliveryStatus; readClassName: string }) {
+  const { label, icon: Icon } = STATUS[status];
   return (
-    <span className={cn("inline-flex items-center gap-0.5", className)} title={label} aria-label={label}>
+    <span
+      className={cn("inline-flex items-center gap-0.5", status === "READ" && readClassName, status === "FAILED" && "font-medium")}
+      title={label}
+      aria-label={label}
+    >
       <Icon className="size-3.5" />
       {status === "FAILED" ? label : null}
     </span>
@@ -79,14 +87,14 @@ export function MessageThread({ companyId, conversationId, latest }: MessageThre
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center bg-subtle p-6 text-sm text-muted-foreground">
         Nenhuma mensagem nesta conversa ainda.
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4" aria-live="polite">
+    <div className="scroll-thin flex-1 overflow-y-auto bg-subtle px-3 py-4 sm:px-6" aria-live="polite">
       {hasMore ? (
         <div className="mb-4 flex flex-col items-center gap-1">
           <Button variant="outline" size="sm" onClick={() => void loadOlder()} disabled={loading}>
@@ -95,38 +103,49 @@ export function MessageThread({ companyId, conversationId, latest }: MessageThre
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
         </div>
       ) : null}
-      <ol className="space-y-3">
+      <ol className="mx-auto max-w-3xl space-y-2.5">
         {messages.map((message, index) => {
           const previous = messages[index - 1];
           const newDay = !previous || formatDate(previous.createdAt) !== formatDate(message.createdAt);
           const outbound = message.direction === "OUTBOUND";
           const failed = message.deliveryStatus === "FAILED";
+          const origin = ORIGIN[outbound ? message.senderType : "CONTACT"];
+          const OriginIcon = origin.icon;
+          // Agrupa mensagens seguidas da mesma origem: o rótulo aparece só na primeira.
+          const sameAsPrevious = !newDay && previous?.direction === message.direction && previous.senderType === message.senderType && previous.sender?.id === message.sender?.id;
+          const senderName = message.senderType === "AGENT" ? (message.sender?.name ?? origin.label) : origin.label;
           return (
             <li key={message.id}>
-              {newDay ? <p className="my-4 text-center text-xs text-muted-foreground">{formatDate(message.createdAt)}</p> : null}
-              <div className={cn("flex flex-col", outbound ? "items-end" : "items-start")}>
+              {newDay ? (
+                <div className="my-5 flex items-center gap-3 text-[11px] font-medium text-muted-foreground" role="separator">
+                  <span className="h-px flex-1 bg-border" />
+                  {formatDate(message.createdAt)}
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+              ) : null}
+              <div className={cn("flex flex-col", outbound ? "items-end" : "items-start", sameAsPrevious ? "" : "pt-1")}>
+                {outbound && !sameAsPrevious ? (
+                  <p className="mb-1 inline-flex items-center gap-1 px-1 text-[11px] font-medium text-muted-foreground">
+                    <OriginIcon className="size-3" aria-hidden />
+                    {senderName}
+                  </p>
+                ) : null}
                 <div
                   className={cn(
-                    "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm shadow-xs",
-                    outbound
-                      ? message.senderType === "AI"
-                        ? "rounded-br-sm bg-brand text-white"
-                        : "rounded-br-sm bg-primary text-primary-foreground"
-                      : "rounded-bl-sm border bg-card text-card-foreground",
-                    failed && "opacity-80 ring-2 ring-destructive/60",
+                    "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed shadow-card sm:max-w-[75%]",
+                    origin.bubble,
+                    failed && "ring-2 ring-destructive/50",
                   )}
                 >
+                  {outbound ? null : <span className="sr-only">Cliente: </span>}
                   <p className="break-words whitespace-pre-wrap">{message.body}</p>
-                  <p className={cn("mt-1 flex items-center justify-end gap-1.5 text-[11px]", outbound ? "text-primary-foreground/70" : "text-muted-foreground")}>
-                    <span>
-                      {outbound ? `${message.sender?.name ?? SENDER_LABEL[message.senderType]} · ` : ""}
-                      {formatTime(message.createdAt)}
-                    </span>
-                    {message.deliveryStatus ? <DeliveryStatus status={message.deliveryStatus} /> : null}
+                  <p className={cn("mt-1 flex items-center justify-end gap-1.5 text-[11px] tabular-nums", origin.meta)}>
+                    <span>{formatTime(message.createdAt)}</span>
+                    {message.deliveryStatus ? <DeliveryStatus status={message.deliveryStatus} readClassName={origin.read} /> : null}
                   </p>
                 </div>
                 {message.errorMessage && (failed || message.deliveryStatus === "PENDING") ? (
-                  <p className={cn("mt-1 max-w-[78%] text-right text-[11px]", failed ? "text-destructive" : "text-muted-foreground")}>
+                  <p className={cn("mt-1 max-w-[85%] text-right text-[11px] sm:max-w-[75%]", failed ? "font-medium text-destructive" : "text-muted-foreground")}>
                     {failed ? "Não enviada: " : ""}
                     {message.errorMessage}
                   </p>
