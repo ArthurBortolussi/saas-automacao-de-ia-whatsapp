@@ -1,12 +1,22 @@
 "use client";
 
-import { Alert, AlertDescription, AlertTitle } from "@arthur-ai/ui/components/alert";
 import { Button } from "@arthur-ai/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@arthur-ai/ui/components/dialog";
+import { cn } from "@arthur-ai/ui/lib/utils";
+import { AlertTriangle } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 interface Props {
   /** Texto do botão que inicia a ação. */
-  label: string;
+  label: ReactNode;
   /** Título e efeito objetivo da operação, mostrados antes de confirmar. */
   title: string;
   effect: ReactNode;
@@ -16,38 +26,65 @@ interface Props {
   pending?: boolean;
   onConfirm: () => void;
   size?: "default" | "sm";
+  /** Aparência do botão que abre a confirmação (o botão de confirmar segue `destructive`). */
+  triggerVariant?: "default" | "outline" | "destructive" | "destructive-outline" | "ghost";
+  triggerClassName?: string;
 }
 
 /**
- * Fase 7: confirmação explícita de operações críticas (pausar a IA, alterar permissões, suspender empresa).
- * O backend também exige { confirm: true }: esta etapa é para a pessoa entender o efeito antes de seguir.
+ * Confirmação explícita de operações críticas (pausar a IA, alterar permissões, suspender empresa, excluir...).
+ * Modal acessível (foco preso, Esc cancela). Quando o backend também exige { confirm: true }, esta etapa é para a
+ * pessoa entender o efeito antes de seguir.
  */
-export function ConfirmAction({ label, title, effect, confirmLabel, destructive = false, disabled, pending, onConfirm, size = "default" }: Props) {
+export function ConfirmAction({
+  label,
+  title,
+  effect,
+  confirmLabel,
+  destructive = false,
+  disabled,
+  pending,
+  onConfirm,
+  size = "default",
+  triggerVariant,
+  triggerClassName,
+}: Props) {
   const [open, setOpen] = useState(false);
-  if (!open) {
-    return (
-      <Button
-        type="button"
-        size={size}
-        variant={destructive ? "destructive" : "default"}
-        disabled={disabled ?? pending}
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        {label}
-      </Button>
-    );
-  }
   return (
-    <Alert variant={destructive ? "destructive" : "default"} className="max-w-xl" role="alertdialog" aria-label={title}>
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription className="space-y-3">
-        <div>{effect}</div>
-        <div className="flex flex-wrap gap-2">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          size={size}
+          variant={triggerVariant ?? (destructive ? "destructive" : "default")}
+          disabled={disabled ?? pending}
+          className={triggerClassName}
+        >
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent role="alertdialog">
+        <DialogHeader>
+          <div className="flex items-start gap-3">
+            {destructive ? (
+              <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full bg-destructive-soft text-destructive">
+                <AlertTriangle className="size-4" />
+              </span>
+            ) : null}
+            <div className="space-y-1.5 pt-1">
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription asChild>
+                <div className={cn("text-sm text-muted-foreground", "[&_ul]:mt-1")}>{effect}</div>
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
           <Button
             type="button"
-            size="sm"
             variant={destructive ? "destructive" : "default"}
             disabled={pending}
             onClick={() => {
@@ -57,19 +94,8 @@ export function ConfirmAction({ label, title, effect, confirmLabel, destructive 
           >
             {pending ? "Aguarde…" : confirmLabel}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() => {
-              setOpen(false);
-            }}
-          >
-            Cancelar
-          </Button>
-        </div>
-      </AlertDescription>
-    </Alert>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

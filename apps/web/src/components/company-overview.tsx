@@ -1,6 +1,6 @@
 import type { CompanyDetail } from "@arthur-ai/shared";
-import { Card, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import { DetailList } from "@/components/detail-list";
+import { SectionCard } from "@/components/section-card";
 import { CompanyStatusBadge } from "@/components/status-badge";
 import { formatCnpj, formatDate, formatLocation, formatPhone } from "@/lib/format";
 
@@ -8,10 +8,7 @@ import { formatCnpj, formatDate, formatLocation, formatPhone } from "@/lib/forma
 export function CompanyOverview({ company }: { company: CompanyDetail }) {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Card className="gap-0 py-0">
-        <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
-          <CardTitle className="text-base">Empresa</CardTitle>
-        </CardHeader>
+      <SectionCard title="Empresa" contentClassName="p-0">
         <DetailList
           items={[
             { label: "Nome", value: company.name },
@@ -22,12 +19,9 @@ export function CompanyOverview({ company }: { company: CompanyDetail }) {
             { label: "Criada em", value: formatDate(company.createdAt) },
           ]}
         />
-      </Card>
+      </SectionCard>
       <div className="space-y-6">
-        <Card className="gap-0 py-0">
-          <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
-            <CardTitle className="text-base">Contato</CardTitle>
-          </CardHeader>
+        <SectionCard title="Contato" contentClassName="p-0">
           <DetailList
             items={[
               { label: "Telefone", value: formatPhone(company.phone) },
@@ -42,11 +36,8 @@ export function CompanyOverview({ company }: { company: CompanyDetail }) {
               },
             ]}
           />
-        </Card>
-        <Card className="gap-0 py-0">
-          <CardHeader className="border-b px-5 py-4 [.border-b]:pb-4">
-            <CardTitle className="text-base">Localização</CardTitle>
-          </CardHeader>
+        </SectionCard>
+        <SectionCard title="Localização" contentClassName="p-0">
           <DetailList
             items={[
               { label: "Endereço", value: company.address },
@@ -54,7 +45,7 @@ export function CompanyOverview({ company }: { company: CompanyDetail }) {
               { label: "Horário", value: company.businessHours },
             ]}
           />
-        </Card>
+        </SectionCard>
       </div>
     </div>
   );

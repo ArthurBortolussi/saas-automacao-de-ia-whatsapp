@@ -3,8 +3,8 @@
 import { loginSchema, type MeResponse } from "@arthur-ai/shared";
 import { Alert, AlertDescription } from "@arthur-ai/ui/components/alert";
 import { Button } from "@arthur-ai/ui/components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import { Input } from "@arthur-ai/ui/components/input";
+import { AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Field } from "@/components/field";
@@ -40,15 +40,16 @@ export function LoginForm() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Entrar</CardTitle>
-        <CardDescription>Acesse com as credenciais fornecidas pela sua empresa.</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="space-y-6">
+      <div className="space-y-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight">Entrar na Vortrix AI</h1>
+        <p className="text-sm text-muted-foreground">Acesse com as credenciais fornecidas pela sua empresa.</p>
+      </div>
+      <div className="rounded-xl border bg-card p-6 shadow-card">
         <form onSubmit={onSubmit} noValidate className="space-y-4">
           {formError ? (
             <Alert variant="destructive">
+              <AlertCircle />
               <AlertDescription>{formError}</AlertDescription>
             </Alert>
           ) : null}
@@ -64,11 +65,11 @@ export function LoginForm() {
               aria-invalid={!!errors["password"]}
             />
           </Field>
-          <Button type="submit" className="w-full" disabled={pending}>
+          <Button type="submit" size="lg" className="w-full" disabled={pending}>
             {pending ? "Entrando…" : "Entrar"}
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

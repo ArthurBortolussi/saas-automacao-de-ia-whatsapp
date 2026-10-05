@@ -3,8 +3,8 @@
 import { changePasswordSchema, PASSWORD_MIN_LENGTH } from "@arthur-ai/shared";
 import { Alert, AlertDescription } from "@arthur-ai/ui/components/alert";
 import { Button } from "@arthur-ai/ui/components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@arthur-ai/ui/components/card";
 import { Input } from "@arthur-ai/ui/components/input";
+import { AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Field } from "@/components/field";
@@ -47,19 +47,20 @@ export function ChangePasswordForm({ required }: { required: boolean }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">{required ? "Defina uma nova senha" : "Trocar senha"}</CardTitle>
-        <CardDescription>
+    <div className="space-y-6">
+      <div className="space-y-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight">{required ? "Defina uma nova senha" : "Trocar senha"}</h1>
+        <p className="text-sm text-muted-foreground">
           {required
             ? "Por segurança, troque a senha inicial antes de continuar. As outras sessões abertas serão encerradas."
             : "As outras sessões abertas serão encerradas."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </p>
+      </div>
+      <div className="rounded-xl border bg-card p-6 shadow-card">
         <form onSubmit={onSubmit} noValidate className="space-y-4">
           {formError ? (
             <Alert variant="destructive">
+              <AlertCircle />
               <AlertDescription>{formError}</AlertDescription>
             </Alert>
           ) : null}
@@ -77,11 +78,11 @@ export function ChangePasswordForm({ required }: { required: boolean }) {
           <Field id="confirmPassword" label="Confirme a nova senha" error={errors["confirmPassword"]}>
             <Input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" />
           </Field>
-          <Button type="submit" className="w-full" disabled={pending}>
+          <Button type="submit" size="lg" className="w-full" disabled={pending}>
             {pending ? "Salvando…" : "Salvar nova senha"}
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

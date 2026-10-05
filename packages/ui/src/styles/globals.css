@@ -1,5 +1,8 @@
 /*
- * Tokens de design do Arthur AI (convenção de variáveis do shadcn/ui, Tailwind v4).
+ * Design system da Vortrix AI (convenção de variáveis do shadcn/ui, Tailwind v4).
+ * Direção "Premium Híbrido": conteúdo claro (mist/branco), sidebar escura (midnight), destaque índigo/violeta.
+ * Regra: componentes usam SEMPRE estes tokens (bg-primary, text-muted-foreground, bg-success-soft...), nunca
+ * hexadecimais soltos. Uma cor nova entra aqui primeiro.
  * O @source garante que o Tailwind do app que importar este CSS escaneie as classes deste pacote.
  */
 @source "../components";
@@ -7,33 +10,82 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Paleta base da marca */
+  --vx-midnight: #0b1220;
+  --vx-midnight-2: #121a2b;
+  --vx-midnight-3: #1b2438;
+  --vx-indigo: #6366f1;
+  --vx-indigo-strong: #4f46e5;
+  --vx-indigo-deep: #4338ca;
+  --vx-lavender: #e9ecff;
+  --vx-mist: #f4f6fb;
+  --vx-white: #ffffff;
+
   --radius: 0.5rem;
-  --background: oklch(0.994 0 0);
-  --foreground: oklch(0.21 0.006 285.9);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.006 285.9);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.006 285.9);
-  --primary: oklch(0.24 0.008 285.9);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.4);
-  --secondary-foreground: oklch(0.21 0.006 285.9);
-  --muted: oklch(0.967 0.001 286.4);
-  --muted-foreground: oklch(0.552 0.016 285.9);
-  --accent: oklch(0.962 0.004 286.3);
-  --accent-foreground: oklch(0.21 0.006 285.9);
-  --destructive: oklch(0.577 0.245 27.3);
-  --border: oklch(0.92 0.004 286.3);
-  --input: oklch(0.92 0.004 286.3);
-  --ring: oklch(0.705 0.015 286.1);
-  --brand: oklch(0.52 0.19 272);
-  --success: oklch(0.6 0.13 155);
-  --warning: oklch(0.72 0.15 70);
-  --sidebar: oklch(0.985 0.001 286.4);
-  --sidebar-foreground: oklch(0.37 0.013 285.8);
-  --sidebar-accent: oklch(0.94 0.004 286.3);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.9);
-  --sidebar-border: oklch(0.92 0.004 286.3);
+
+  /* Superfícies e texto */
+  --background: var(--vx-mist);
+  --foreground: #101828;
+  --card: var(--vx-white);
+  --card-foreground: #101828;
+  --popover: var(--vx-white);
+  --popover-foreground: #101828;
+  --muted: #eef1f6;
+  --muted-foreground: #5b6478;
+  --subtle: #f8f9fc;
+
+  /* Ações */
+  --primary: var(--vx-indigo-strong);
+  --primary-hover: var(--vx-indigo-deep);
+  --primary-foreground: var(--vx-white);
+  --secondary: #eef1f6;
+  --secondary-foreground: #1d2939;
+  --accent: #f0f2fa;
+  --accent-foreground: #101828;
+  --brand: var(--vx-indigo);
+  --brand-soft: var(--vx-lavender);
+  --brand-strong: var(--vx-indigo-strong);
+
+  /* Bordas e foco */
+  --border: #e3e7ef;
+  --input: #d6dbe5;
+  --ring: var(--vx-indigo);
+
+  /* Estados: a cor "cheia" tem contraste >= 4,5:1 sobre branco (serve para texto); a "soft" é fundo de selo/alerta. */
+  --success: #15803d;
+  --success-soft: #ecfdf3;
+  --warning: #b45309;
+  --warning-soft: #fff7e8;
+  --destructive: #dc2626;
+  --destructive-soft: #fef2f2;
+  --info: #4f46e5;
+  --info-soft: #eef0ff;
+
+  /* Gráficos (categóricas validadas para daltonismo, ordem fixa): IA, equipe, aguardando; neutro para o residual. */
+  --chart-1: #4f46e5;
+  --chart-2: #0d9488;
+  --chart-3: #d97706;
+  --chart-muted: #cbd2de;
+
+  /* Sidebar escura */
+  --sidebar: var(--vx-midnight);
+  --sidebar-foreground: #a7b0c4;
+  --sidebar-muted: #6f7a92;
+  --sidebar-accent: var(--vx-midnight-3);
+  --sidebar-accent-foreground: var(--vx-white);
+  --sidebar-active: rgb(99 102 241 / 0.18);
+  --sidebar-border: #1e2840;
+  --sidebar-surface: var(--vx-midnight-2);
+  /* Estados sobre o fundo escuro (tons claros para contraste). */
+  --sidebar-success: #4ade80;
+  --sidebar-warning: #fbbf24;
+  --sidebar-danger: #fca5a5;
+
+  /* Mensagens da Inbox */
+  --bubble-contact: var(--vx-white);
+  --bubble-ai: var(--vx-lavender);
+  --bubble-agent: #1d2939;
+  --bubble-system: #f6efe0;
 }
 
 @theme inline {
@@ -50,33 +102,106 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-strong: var(--brand-strong);
   --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-muted: var(--chart-muted);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-active: var(--sidebar-active);
   --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-surface: var(--sidebar-surface);
+  --color-sidebar-success: var(--sidebar-success);
+  --color-sidebar-warning: var(--sidebar-warning);
+  --color-sidebar-danger: var(--sidebar-danger);
+  --color-bubble-contact: var(--bubble-contact);
+  --color-bubble-ai: var(--bubble-ai);
+  --color-bubble-agent: var(--bubble-agent);
+  --color-bubble-system: var(--bubble-system);
+  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04);
+  --animate-fade-in: vx-fade-in 140ms ease-out;
+  --animate-pop-in: vx-pop-in 160ms ease-out;
+  --animate-slide-in-left: vx-slide-in-left 200ms ease-out;
+  --shadow-raised: 0 4px 16px -4px rgb(16 24 40 / 0.10), 0 2px 4px -2px rgb(16 24 40 / 0.06);
+}
+
+@keyframes vx-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vx-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.98);
+  }
+}
+@keyframes vx-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv11", "ss01";
+  }
+  /* Checkbox e radio nativos seguem a marca (mantidos nativos: os formulários leem os valores via FormData). */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
+  ::selection {
+    background: var(--brand-soft);
+    color: var(--foreground);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Rolagem discreta para colunas da Inbox e listas internas. */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
   }
 }
